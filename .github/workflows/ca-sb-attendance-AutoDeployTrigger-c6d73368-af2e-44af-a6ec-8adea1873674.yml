@@ -40,7 +40,7 @@ jobs:
           registryPassword: ${{ secrets.CASBATTENDANCE_REGISTRY_PASSWORD }}
           containerAppName: ca-sb-attendance
           resourceGroup: rg-sb-disciple
-          imageToBuild: default/[parameters('containerAppName')]:${{ github.sha }}
+          imageToBuild: ca-sb-attendance:${{ github.sha }}
           _buildArgumentsKey_: |
             _buildArgumentsValues_
 
