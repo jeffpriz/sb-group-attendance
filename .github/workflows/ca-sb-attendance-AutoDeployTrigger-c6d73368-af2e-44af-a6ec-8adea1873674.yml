@@ -35,7 +35,7 @@ jobs:
           appSourcePath: ${{ github.workspace }}
           _dockerfilePathKey_: _dockerfilePath_
           _targetLabelKey_: _targetLabel_
-          registryUrl: 
+          registryUrl: crspringbrookjeffpriz.azurecr.io
           registryUsername: ${{ secrets.CASBATTENDANCE_REGISTRY_USERNAME }}
           registryPassword: ${{ secrets.CASBATTENDANCE_REGISTRY_PASSWORD }}
           containerAppName: ca-sb-attendance
