@@ -420,3 +420,14 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# ---- SB Group Attendance ----
+# App data (group members' names and attendance) lives in data/ and is not
+# committed. Back up this folder instead.
+data/*
+!data/.gitkeep
+
+# Local settings (copy .env.example to .env)
+.env
+.env.*
+!.env.example
