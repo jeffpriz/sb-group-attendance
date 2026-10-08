@@ -1,0 +1,16 @@
+# Keep the build context small and never bake data or secrets into the image
+node_modules
+dist
+data
+.git
+.github
+.vscode
+.idea
+coverage
+*.log
+.env
+.env.*
+*.local
+Dockerfile
+.dockerignore
+docker-compose*.yml

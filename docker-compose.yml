@@ -1,0 +1,40 @@
+# Example: run the app with its data stored on a mounted folder or file share.
+#
+#   docker compose up -d --build
+#   open http://localhost:3001
+#
+# Set ATTENDANCE_DATA_PATH to the folder on the Docker host where data
+# should live, e.g. an Azure Files / SMB / NFS share mounted on the host:
+#
+#   ATTENDANCE_DATA_PATH=/mnt/churchshare/sb-group-attendance docker compose up -d
+#
+# (or put ATTENDANCE_DATA_PATH=... in a .env file next to this file).
+# Without it, ./data in this folder is used. The folder must be writable by
+# uid 1000 (the container's `node` user). Run only ONE container per data
+# folder.
+services:
+  attendance:
+    build: .
+    image: sb-group-attendance:latest
+    init: true
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      DATA_DIR: /data
+    volumes:
+      - ${ATTENDANCE_DATA_PATH:-./data}:/data
+
+# Alternative: let Docker mount an SMB share (e.g. Azure Files) itself.
+# Replace the `volumes:` entry above with `- attendance-data:/data` and
+# uncomment below. Keep the storage key out of this file in real use
+# (e.g. use an .env file that isn't committed).
+#
+# volumes:
+#   attendance-data:
+#     driver: local
+#     driver_opts:
+#       type: cifs
+#       device: "//<storage-account>.file.core.windows.net/<share-name>"
+#       o: "username=<storage-account>,password=${AZURE_STORAGE_KEY},vers=3.1.1,uid=1000,gid=1000,dir_mode=0770,file_mode=0660,serverino,nosharesock,actimeo=30"

@@ -7,8 +7,10 @@ import type { Group, GroupSummary } from '../shared/types.ts'
 import { GroupStore, HttpError } from './storage.ts'
 
 export interface AppOptions {
-  /** Folder that holds the JSON data files. */
-  dataDir: string
+  /** Folder that holds the JSON data files (ignored when `store` is given). */
+  dataDir?: string
+  /** An already-initialized store to use. */
+  store?: GroupStore
   /** Built frontend (Vite `dist/` folder) to serve, if it exists. */
   staticDir?: string
 }
@@ -47,16 +49,19 @@ function toSummary(group: Group): GroupSummary {
   }
 }
 
-export function createApp({ dataDir, staticDir }: AppOptions) {
-  const store = new GroupStore(dataDir)
+export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions) {
+  if (!givenStore && !dataDir) throw new Error('createApp needs a dataDir or a store')
+  const store = givenStore ?? new GroupStore(dataDir!)
   const app = express()
   app.disable('x-powered-by')
   app.use(express.json({ limit: '1mb' }))
 
   const api = express.Router()
 
-  api.get('/health', (_req, res) => {
-    res.json({ ok: true })
+  /** Used by the Docker HEALTHCHECK: fails if the data folder disappears or turns read-only. */
+  api.get('/health', async (_req, res) => {
+    const writable = await store.isWritable()
+    res.status(writable ? 200 : 503).json({ ok: writable, dataWritable: writable })
   })
 
   // ---- Groups -------------------------------------------------------------

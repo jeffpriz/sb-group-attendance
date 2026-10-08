@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Group } from '../shared/types.ts'
 
@@ -18,17 +19,65 @@ const ID_PATTERN = /^[a-zA-Z0-9-]{1,64}$/
  * Stores each group (members, meeting schedule and attendance) as its own
  * JSON file: `<dataDir>/groups/<groupId>.json`.
  *
- * Writes go to a temporary file first and are then renamed over the real
- * file, so a crash mid-write never leaves a half-written JSON file. Updates
- * to the same group are queued so concurrent requests can't overwrite each
- * other's changes.
+ * Writes go to a temporary file in the same folder as the target (so it is
+ * on the same filesystem, including network shares) and are then renamed
+ * over the real file, so a crash mid-write never leaves a half-written JSON
+ * file. Updates to the same group are queued so concurrent requests can't
+ * overwrite each other's changes. Only one server process should use a data
+ * folder at a time.
  */
 export class GroupStore {
+  readonly dataDir: string
   readonly groupsDir: string
   private readonly locks = new Map<string, Promise<unknown>>()
 
+  /** Relative paths are resolved against the current working directory. */
   constructor(dataDir: string) {
-    this.groupsDir = path.join(dataDir, 'groups')
+    this.dataDir = path.resolve(dataDir)
+    this.groupsDir = path.join(this.dataDir, 'groups')
+  }
+
+  /**
+   * Creates the data folders if they're missing and proves they can be
+   * written to, so a bad mount fails at startup instead of on first save.
+   * Also removes temp files left behind by a crash more than an hour ago.
+   */
+  async init(): Promise<void> {
+    try {
+      await mkdir(this.groupsDir, { recursive: true })
+    } catch (err) {
+      throw new Error(`Cannot create data folder ${this.groupsDir}: ${(err as Error).message}`, { cause: err })
+    }
+    const probe = path.join(this.groupsDir, `.write-test-${process.pid}-${randomUUID()}.tmp`)
+    try {
+      await writeFile(probe, 'ok', 'utf8')
+      await rename(probe, `${probe}.renamed`)
+      await rm(`${probe}.renamed`)
+    } catch (err) {
+      await rm(probe, { force: true }).catch(() => undefined)
+      throw new Error(
+        `Data folder ${this.groupsDir} is not writable by this process ` +
+          `(uid ${process.getuid?.() ?? 'n/a'}): ${(err as Error).message}`,
+        { cause: err },
+      )
+    }
+    const cutoff = Date.now() - 60 * 60 * 1000
+    for (const name of await readdir(this.groupsDir)) {
+      if (!name.endsWith('.tmp')) continue
+      const file = path.join(this.groupsDir, name)
+      const info = await stat(file).catch(() => undefined)
+      if (info && info.mtimeMs < cutoff) await rm(file, { force: true }).catch(() => undefined)
+    }
+  }
+
+  /** True when the groups folder exists and is writable (used by /api/health). */
+  async isWritable(): Promise<boolean> {
+    try {
+      await access(this.groupsDir, constants.W_OK)
+      return true
+    } catch {
+      return false
+    }
   }
 
   private fileFor(id: string): string {
@@ -104,6 +153,8 @@ export class GroupStore {
   private async write(group: Group): Promise<void> {
     const file = this.fileFor(group.id)
     await mkdir(this.groupsDir, { recursive: true })
+    // Keep the temp file next to the target so the rename stays on one
+    // filesystem (a rename across filesystems/shares is not atomic).
     const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`
     await writeFile(tmp, JSON.stringify(group, null, 2) + '\n', 'utf8')
     // On Windows a rename can briefly fail if another program (e.g. antivirus)

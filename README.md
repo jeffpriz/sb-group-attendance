@@ -35,7 +35,71 @@ npm run build
 npm start
 ```
 
-Then open http://localhost:3001. In this mode one Express server serves both the built website and the API. Set `PORT` to use a different port. Other devices on the same network (for example a phone) can use `http://<this-computer's-IP>:3001`.
+Then open http://localhost:3001. In this mode one Express server serves both the built website and the API. Other devices on the same network (for example a phone) can use `http://<this-computer's-IP>:3001`.
+
+### Environment variables
+
+| Variable   | Default                        | What it does                                                                                       |
+| ---------- | ------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `DATA_DIR` | `data/` in the project folder (`/data` in Docker) | Folder where JSON files are saved. Absolute paths are used as-is; relative paths are resolved from the current directory. |
+| `PORT`     | `3001`                         | Port the server listens on.                                                                        |
+| `HOST`     | `0.0.0.0`                      | Address the server binds to (all interfaces by default).                                           |
+
+On startup the server creates `DATA_DIR` and its `groups/` subfolder if they're missing, checks it can write there, and logs the folder it's using. If the folder can't be created or written, it prints an error and exits instead of starting.
+
+```bash
+DATA_DIR=/mnt/share/attendance PORT=8080 npm start
+```
+
+## Docker
+
+The `Dockerfile` builds a production image (Node 24 LTS on Alpine, multi-stage). It runs as the non-root `node` user (uid/gid 1000) with `NODE_ENV=production`, `PORT=3001` and `DATA_DIR=/data`. `/data` is declared as a volume, and a health check calls `/api/health`, which fails if the data folder becomes unwritable.
+
+Build and run:
+
+```bash
+docker build -t sb-group-attendance .
+
+# Store data in a host folder or mounted file share
+docker run -d --name sb-attendance --init --restart unless-stopped \
+  -p 3001:3001 \
+  -v /path/to/share/sb-group-attendance:/data \
+  sb-group-attendance
+```
+
+Use a different data path or port inside the container:
+
+```bash
+docker run -d --name sb-attendance --init \
+  -p 8080:8080 -e PORT=8080 \
+  -e DATA_DIR=/mnt/share/attendance \
+  -v /path/to/share:/mnt/share \
+  sb-group-attendance
+```
+
+Or with Docker Compose (see `docker-compose.yml`):
+
+```bash
+ATTENDANCE_DATA_PATH=/path/to/share/sb-group-attendance docker compose up -d --build
+```
+
+Check the logs for the `Data folder: ...` line to confirm where data is being saved: `docker logs sb-attendance`.
+
+### File permissions on mounted folders and shares
+
+The container runs as uid **1000** (gid 1000), not root, so the mounted folder must be writable by uid 1000. If it isn't, the container logs `Cannot create data folder ...` or `... is not writable` and exits.
+
+- **Local folder:** `sudo chown -R 1000:1000 /path/to/share/sb-group-attendance`
+- **SMB / CIFS (including Azure Files SMB):** ownership comes from the mount options, not `chown`. Mount with `uid=1000,gid=1000,dir_mode=0770,file_mode=0660`. Example for an Azure Files share on a Linux Docker host:
+  ```bash
+  sudo mount -t cifs //<account>.file.core.windows.net/<share> /mnt/churchshare \
+    -o vers=3.1.1,username=<account>,password=<storage-key>,uid=1000,gid=1000,dir_mode=0770,file_mode=0660,serverino,nosharesock,actimeo=30
+  ```
+  `docker-compose.yml` also has a commented example that lets Docker mount the SMB share itself.
+- **NFS (including Azure Files NFS):** make the export directory owned by uid/gid 1000 (`chown 1000:1000` from a client), or set the share's squash settings so uid 1000 can write.
+- **Azure Container Apps / App Service:** mount the Azure Files share at `/data` (or set `DATA_DIR` to the mount path). If the platform mounts SMB shares as root-only, set mount options for uid/gid 1000 where the platform allows it, or make the share writable for that user.
+
+**Run one container per data folder.** The server queues saves within a single process. Two containers writing the same share at the same time could overwrite each other's changes. Saves write a temp file in the same folder and then rename it over the real file. That works on SMB and NFS shares, but `DATA_DIR` must point straight at the share, not at a folder that spans two filesystems.
 
 ## Scripts
 
@@ -47,6 +111,8 @@ Then open http://localhost:3001. In this mode one Express server serves both the
 | `npm run typecheck` | Type-check the website, server and shared code                    |
 | `npm run lint`      | Lint with oxlint                                                  |
 | `npm test`          | Run the tests (date helpers, JSON storage and API)                |
+
+`GET /api/health` returns `{ "ok": true, "dataWritable": true }`, or a 503 status if the data folder can't be written.
 
 ## Where data is stored
 
@@ -81,8 +147,8 @@ A group file looks like this:
 ```
 
 - Meeting dates are plain calendar dates (`YYYY-MM-DD`), so they never shift with time zones. A meeting without `attendance` hasn't been taken yet.
-- Files are written to a temporary file first and then swapped into place, so a crash can't leave a half-written file. Changes to the same group are saved one at a time.
-- Set the `DATA_DIR` environment variable to keep the data somewhere else.
+- Files are written to a temporary file in the same folder first and then swapped into place, so a crash can't leave a half-written file. Changes to the same group are saved one at a time. Temp files left behind by a crash are cleaned up on the next start.
+- Set the `DATA_DIR` environment variable to keep the data somewhere else, such as a file share (see [Docker](#docker)).
 - **The `data/` folder is not committed to git** (it holds people's names). Back it up by copying the folder.
 
 ## API

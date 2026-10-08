@@ -110,6 +110,12 @@ describe('API', () => {
     expect(restored.body.members[0].removedAt).toBeUndefined()
   })
 
+  it('reports health, including whether the data folder is writable', async () => {
+    await request(app).post('/api/groups').send({ name: 'Make the folder' }).expect(201)
+    const res = await request(app).get('/api/health').expect(200)
+    expect(res.body).toEqual({ ok: true, dataWritable: true })
+  })
+
   it('deletes a group', async () => {
     const group = await createGroupWithMembers([])
     await request(app).delete(`/api/groups/${group.id}`).expect(204)
