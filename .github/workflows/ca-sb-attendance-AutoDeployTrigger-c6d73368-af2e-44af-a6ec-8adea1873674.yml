@@ -35,8 +35,6 @@ jobs:
         with:
           appSourcePath: ${{ github.workspace }}
           registryUrl: crspringbrookjeffpriz.azurecr.io
-          registryUsername: ${{ secrets.CASBATTENDANCE_REGISTRY_USERNAME }}
-          registryPassword: ${{ secrets.CASBATTENDANCE_REGISTRY_PASSWORD }}
           containerAppName: ca-sb-attendance
           resourceGroup: rg-sb-disciple
           imageToBuild: ca-sb-attendance:${{ github.sha }}
