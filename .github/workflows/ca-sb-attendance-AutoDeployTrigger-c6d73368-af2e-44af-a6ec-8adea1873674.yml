@@ -25,11 +25,9 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Azure Login
-        uses: azure/login@v2
+        uses: azure/login@v1
         with:
-          client-id: ${{ secrets.CASBATTENDANCE_AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.CASBATTENDANCE_AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.CASBATTENDANCE_AZURE_SUBSCRIPTION_ID }}
+          creds: '{"clientId":"${{ secrets.CASBATTENDANCE_AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.CASBATTENDANCE_AZURE_CLIENT_SECRET }}","tenantId":"${{ secrets.CASBATTENDANCE_AZURE_TENANT_ID }}","subscriptionId":"${{ secrets.CASBATTENDANCE_AZURE_SUBSCRIPTION_ID }}"}'
 
       - name: Build and push container image to registry
         uses: azure/container-apps-deploy-action@v2
