@@ -14,7 +14,7 @@ on:
   workflow_dispatch:      
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     permissions: 
       id-token: write #This is required for requesting the OIDC JWT Token
@@ -35,13 +35,8 @@ jobs:
           az acr login --name crspringbrookjeffpriz
 
       - name: Build and push container image to registry
-        uses: azure/container-apps-deploy-action@v2
-        with:
-          appSourcePath: ${{ github.workspace }}
-          registryUrl: crspringbrookjeffpriz.azurecr.io
-          containerAppName: ca-sb-attendance
-          resourceGroup: rg-sb-disciple
-          imageToBuild: ca-sb-attendance:${{ github.sha }}
-          dockerfilePath: ./Dockerfile
+        run: |
+          docker build --file ./Dockerfile --tag crspringbrookjeffpriz.azurecr.io/ca-sb-attendance:${GITHUB_SHA} .
+          docker push crspringbrookjeffpriz.azurecr.io/ca-sb-attendance:${GITHUB_SHA}
 
 
