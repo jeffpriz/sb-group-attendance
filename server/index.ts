@@ -1,9 +1,19 @@
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createApp } from './app.ts'
 import { GroupStore } from './storage.ts'
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url))
+
+// Local development convenience: load settings from a `.env` file in the
+// project folder if there is one. Variables already set in the real
+// environment (Docker, Azure Container Apps, the shell) take precedence.
+const envFile = path.join(projectRoot, '.env')
+if (existsSync(envFile)) {
+  process.loadEnvFile(envFile)
+  console.log(`Loaded settings from ${envFile}`)
+}
 
 /**
  * DATA_DIR: where JSON files are saved. An absolute path is used as-is (e.g.

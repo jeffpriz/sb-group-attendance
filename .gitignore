@@ -426,3 +426,8 @@ FodyWeavers.xsd
 # committed. Back up this folder instead.
 data/*
 !data/.gitkeep
+
+# Local settings (copy .env.example to .env)
+.env
+.env.*
+!.env.example

@@ -16,36 +16,61 @@ A simple web app for tracking small-group attendance at **Springbrook Community 
 - A small [Express](https://expressjs.com) server (TypeScript, run with [tsx](https://tsx.is)) that saves data as JSON files
 - [Vitest](https://vitest.dev) + Supertest for tests, [oxlint](https://oxc.rs) for linting
 
-## Getting started
+## Local development (no Docker, no Azure)
 
-Requires Node.js 20.19 or newer.
+Everything runs on your own computer. You don't need an Azure account, Docker or any cloud service. Data is saved as JSON files in the project's `data/` folder.
+
+**Prerequisites**
+
+- [Node.js](https://nodejs.org) **24 LTS** (the same version the Docker image uses; `.nvmrc` says `24`). Node 20.19 or newer also works.
+- npm (comes with Node.js)
+
+**Run it**
 
 ```bash
-npm install
+npm install      # once, and again after pulling changes to package.json
 npm run dev
 ```
 
-Then open http://localhost:5173. `npm run dev` starts both the Vite dev server and the API server (on port 3001). Vite forwards `/api` requests to the API server.
+- Open **http://localhost:5173**. That's the Vite dev server, with instant reload when you edit `src/`.
+- The API server runs on **http://localhost:3001** and restarts when you edit `server/` or `shared/`. Vite forwards `/api` requests to it.
+- Data goes to `./data/groups/*.json`. Delete that folder to start fresh.
+- Stop both servers with **Ctrl+C**.
 
-### Running it for real use
+**Change local settings (optional)**
 
 ```bash
-npm install
+cp .env.example .env    # then edit .env
+```
+
+`.env` can set `DATA_DIR`, `PORT` and `HOST` (see the table below). The server reads it at startup and the dev proxy picks up `PORT`. `.env` is gitignored, so your local settings are never committed. Variables set in your shell take precedence over `.env`.
+
+**Other commands**
+
+```bash
+npm test             # run the tests
+npm run typecheck    # type-check website, server and shared code
+npm run lint         # lint
+```
+
+### Production-like local run
+
+```bash
 npm run build
 npm start
 ```
 
-Then open http://localhost:3001. In this mode one Express server serves both the built website and the API. Other devices on the same network (for example a phone) can use `http://<this-computer's-IP>:3001`.
+Then open http://localhost:3001. In this mode one Express server serves both the built website and the API, as it does in Docker. Other devices on the same network (for example a phone) can use `http://<this-computer's-IP>:3001`.
 
 ### Environment variables
 
 | Variable   | Default                        | What it does                                                                                       |
 | ---------- | ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `DATA_DIR` | `data/` in the project folder (`/data` in Docker) | Folder where JSON files are saved. Absolute paths are used as-is; relative paths are resolved from the current directory. |
+| `DATA_DIR` | `data/` in the project folder (`/data` in Docker) | Folder where JSON files are saved. Absolute paths are used as-is; relative paths are resolved from the current directory (the project folder when using npm scripts). |
 | `PORT`     | `3001`                         | Port the server listens on.                                                                        |
 | `HOST`     | `0.0.0.0`                      | Address the server binds to (all interfaces by default).                                           |
 
-On startup the server creates `DATA_DIR` and its `groups/` subfolder if they're missing, checks it can write there, and logs the folder it's using. If the folder can't be created or written, it prints an error and exits instead of starting.
+Set these in your shell, in a local `.env` file, with `docker run -e`, or as container app environment variables in Azure. On startup the server creates `DATA_DIR` and its `groups/` subfolder if they're missing, checks it can write there, and logs the folder it's using. If the folder can't be created or written, it prints an error and exits instead of starting.
 
 ```bash
 DATA_DIR=/mnt/share/attendance PORT=8080 npm start
@@ -97,9 +122,13 @@ The container runs as uid **1000** (gid 1000), not root, so the mounted folder m
   ```
   `docker-compose.yml` also has a commented example that lets Docker mount the SMB share itself.
 - **NFS (including Azure Files NFS):** make the export directory owned by uid/gid 1000 (`chown 1000:1000` from a client), or set the share's squash settings so uid 1000 can write.
-- **Azure Container Apps / App Service:** mount the Azure Files share at `/data` (or set `DATA_DIR` to the mount path). If the platform mounts SMB shares as root-only, set mount options for uid/gid 1000 where the platform allows it, or make the share writable for that user.
+- **Azure Container Apps:** see **[docs/azure-container-apps.md](docs/azure-container-apps.md)**. It covers the Azure Files SMB volume, the storage key kept in Key Vault, mount options `uid=1000,gid=1000`, a single replica, health probes and an example Bicep file in `deploy/azure-container-apps/`.
 
 **Run one container per data folder.** The server queues saves within a single process. Two containers writing the same share at the same time could overwrite each other's changes. Saves write a temp file in the same folder and then rename it over the real file. That works on SMB and NFS shares, but `DATA_DIR` must point straight at the share, not at a folder that spans two filesystems.
+
+## Deploying to Azure Container Apps
+
+See **[docs/azure-container-apps.md](docs/azure-container-apps.md)** and the example Bicep file [`deploy/azure-container-apps/main.bicep`](deploy/azure-container-apps/main.bicep). The app itself only needs `DATA_DIR=/data`. The storage account key lives in Key Vault and is used by the Container Apps environment to mount the share, never by the app.
 
 ## Scripts
 
