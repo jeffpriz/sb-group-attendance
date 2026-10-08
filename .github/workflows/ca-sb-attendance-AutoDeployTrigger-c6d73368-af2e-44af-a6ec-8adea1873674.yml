@@ -28,18 +28,15 @@ jobs:
         uses: azure/login@v1
         with:
           creds: '{"clientId":"${{ secrets.CASBATTENDANCE_AZURE_CLIENT_ID }}","clientSecret":"${{ secrets.CASBATTENDANCE_AZURE_CLIENT_SECRET }}","tenantId":"${{ secrets.CASBATTENDANCE_AZURE_TENANT_ID }}","subscriptionId":"${{ secrets.CASBATTENDANCE_AZURE_SUBSCRIPTION_ID }}"}'
-      - name: Get ACR credentials
-        run: |
-          echo "ACR_USERNAME=$(az acr credential show --name springbrookjeffpriz --query username -o tsv)" >> $GITHUB_ENV
-          echo "ACR_PASSWORD=$(az acr credential show --name springbrookjeffpriz --query "passwords[0].value" -o tsv)" >> $GITHUB_ENV
+
 
       - name: Build and push container image to registry
         uses: azure/container-apps-deploy-action@v2
         with:
           appSourcePath: ${{ github.workspace }}
           registryUrl: crspringbrookjeffpriz.azurecr.io
-          registryUsername: ${{ env.ACR_USERNAME }}
-          registryPassword: ${{ env.ACR_PASSWORD }}
+          registryUsername: ${{ secrets.CASBATTENDANCE_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.CASBATTENDANCE_REGISTRY_PASSWORD }}
           containerAppName: ca-sb-attendance
           resourceGroup: rg-sb-disciple
           imageToBuild: ca-sb-attendance:${{ github.sha }}
