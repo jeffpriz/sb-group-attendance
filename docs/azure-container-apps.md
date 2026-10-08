@@ -278,4 +278,4 @@ Use the storage account's two keys so the share is never left with an invalid ke
 
 ## Local development
 
-You don't need any of this to work on the app locally. See [Local development](../README.md#local-development-no-docker-no-azure) in the README: `npm install`, then `npm run dev`. Data goes to `./data`.
+You don't need any of this to work on the app locally. See [Local development](../README.md#local-development) in the README: `npm install`, then `npm run dev`. Data goes to `./data`.
