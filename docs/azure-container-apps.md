@@ -192,6 +192,7 @@ az deployment group create -g $RG -f deploy/azure-container-apps/main.bicep \
   -p environmentName=$ENV appName=$APP identityName=<IDENTITY_NAME> \
      storageAccountName=$STORAGE shareName=$SHARE \
      keyVaultName=$KV keyVaultSecretName=$SECRET \
+     sitePasswordSecretName=site-password sessionSecretName=session-secret \
      acrLoginServer=$ACR.azurecr.io image=$ACR.azurecr.io/sb-group-attendance:1.0.0
 ```
 
@@ -202,7 +203,7 @@ It sets up the following. If you build the app another way (portal, CLI + YAML),
 | Image pull | `registries: [{ server: '<ACR>.azurecr.io', identity: '<IDENTITY_ID>' }]` | Pull from ACR with the managed identity (no registry password). |
 | Volume | `name: attendance-data`, `storageType: AzureFile`, `storageName: attendance-files`, `mountOptions: 'uid=1000,gid=1000,dir_mode=0770,file_mode=0660'` | The container runs as the non-root `node` user (uid/gid 1000). These options make the share's files owned by and writable for that user. |
 | Volume mount | `volumeName: attendance-data`, `mountPath: /data` | Where the share appears in the container. |
-| Environment variables | `DATA_DIR=/data`, `PORT=3001` | The app saves to `/data/groups/*.json`. |
+| Environment variables | `DATA_DIR=/data`, `PORT=3001`, `SITE_PASSWORD=secretref:site-password`, optional `SESSION_SECRET=secretref:session-secret` | The app saves to `/data/groups/*.json`. The password comes from a Key Vault reference secret (see [Site password](#site-password)). |
 | Ingress | external, `targetPort: 3001` | |
 | Scale | `minReplicas: 1`, `maxReplicas: 1` | See [one replica](#why-exactly-one-replica). `minReplicas: 1` also avoids cold starts from scaling to zero. |
 | Revision mode | `Single` | |
@@ -219,6 +220,10 @@ CLI + YAML alternative: create the app with `az containerapp create … --user-a
         value: /data
       - name: PORT
         value: "3001"
+      - name: SITE_PASSWORD
+        secretRef: site-password
+      - name: SESSION_SECRET
+        secretRef: session-secret
       volumeMounts:
       - volumeName: attendance-data
         mountPath: /data
@@ -250,6 +255,44 @@ az containerapp logs show -n $APP -g $RG --tail 50
 ```
 
 Look for `Data folder: /data (from DATA_DIR)`. If you see `Cannot create data folder` or `is not writable`, the mount options or share permissions are wrong. After creating a group in the app, a file should appear in the share under `groups/`.
+
+## Site password
+
+The app needs `SITE_PASSWORD`. The image runs with `NODE_ENV=production`, so **without it the container exits at startup** with `SITE_PASSWORD is not set` and the revision never becomes healthy. Set it up **before** deploying an image that includes the sign-in feature.
+
+Recommended: keep the password in Key Vault and give the app a **Key Vault reference secret** (not a plain value), then point the environment variable at it with `secretRef`. The same identity and **Key Vault Secrets User** role used for the storage key can read it.
+
+```bash
+# 1. Store the password (and an optional signing key) in Key Vault. Type the password at the prompt; don't put it in scripts.
+read -rs -p "Site password: " SITE_PW; echo
+az keyvault secret set --vault-name $KV --name site-password --value "$SITE_PW" --output none; unset SITE_PW
+az keyvault secret set --vault-name $KV --name session-secret --value "$(openssl rand -hex 32)" --output none
+
+# 2. The APP's identity needs to read them (skip if it already has Key Vault Secrets User on the vault)
+az role assignment create --assignee-object-id $(az identity show --ids $IDENTITY_ID --query principalId -o tsv) --assignee-principal-type ServicePrincipal \
+  --role "Key Vault Secrets User" --scope $(az keyvault show -n $KV --query id -o tsv)
+
+# 3. Add them to the container app as Key Vault reference secrets (versionless URLs)
+az containerapp secret set -n $APP -g $RG --secrets \
+  "site-password=keyvaultref:https://$KV.vault.azure.net/secrets/site-password,identityref:$IDENTITY_ID" \
+  "session-secret=keyvaultref:https://$KV.vault.azure.net/secrets/session-secret,identityref:$IDENTITY_ID"
+
+# 4. Point the environment variables at the secrets (this creates a new revision)
+az containerapp update -n $APP -g $RG \
+  --set-env-vars SITE_PASSWORD=secretref:site-password SESSION_SECRET=secretref:session-secret
+```
+
+The example Bicep file does steps 3 and 4 (parameters `sitePasswordSecretName` and the optional `sessionSecretName`). A plain ACA secret (`--secrets site-password=<value>`) also works if you don't use Key Vault.
+
+**Changing the password** doesn't need a rebuild. Update the Key Vault secret (or the ACA secret), then **restart the revision**: `az containerapp revision restart -n $APP -g $RG --revision $(az containerapp show -n $APP -g $RG --query properties.latestRevisionName -o tsv)`. The app reads `SITE_PASSWORD` only at startup, and updating a secret doesn't create a new revision by itself. Changing the password signs everyone out.
+
+**`SESSION_SECRET`** is optional. Without it, each start (restart, new revision, replica move) signs everyone out, which is fine with one replica. Sessions always end one hour after signing in.
+
+HTTPS: ACA ingress terminates TLS (`allowInsecure: false`). The app trusts one proxy hop, so it sees the request as HTTPS and marks the cookie `Secure`. `/api/health` stays open for the probes and returns only `{ ok, dataWritable }`.
+
+### GitHub Actions deploy workflow
+
+`.github/workflows/ca-sb-attendance-AutoDeployTrigger-*.yml` builds and pushes the image on every push to `main`. It doesn't set environment variables or secrets on the container app, and it shouldn't: **never put the password in the workflow or in GitHub secrets for this**. The container app's own configuration (above) supplies it to every new revision.
 
 ## Why exactly one replica
 

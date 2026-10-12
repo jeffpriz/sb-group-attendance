@@ -23,6 +23,11 @@ COPY server ./server
 COPY shared ./shared
 COPY --from=build /app/dist ./dist
 
+# SITE_PASSWORD (required: the image runs with NODE_ENV=production and refuses
+# to start without it) and the optional SESSION_SECRET are NOT set here. Pass
+# them at run time (docker run -e, Compose, or Azure Container Apps secrets),
+# so the password can change without rebuilding the image.
+
 # Default data location. Mount a host folder or file share here, or point
 # DATA_DIR somewhere else. The server runs as the non-root `node` user
 # (uid/gid 1000), so the mounted folder must be writable by uid 1000.

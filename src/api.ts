@@ -8,6 +8,19 @@ export class ApiRequestError extends Error {
   }
 }
 
+export interface SessionInfo {
+  required: boolean
+  authenticated: boolean
+  expiresAt?: string
+}
+
+let onAuthRequired: (() => void) | undefined
+
+/** Called whenever the server says the session is missing or has expired. */
+export function setAuthRequiredHandler(handler: (() => void) | undefined) {
+  onAuthRequired = handler
+}
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   let res: Response
   try {
@@ -23,6 +36,10 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   const data = await res.json().catch(() => undefined)
   if (!res.ok) {
     const message = (data as { error?: string } | undefined)?.error ?? `Request failed (${res.status})`
+    if (res.status === 401 && (data as { code?: string } | undefined)?.code === 'auth_required') {
+      onAuthRequired?.()
+      throw new ApiRequestError(401, 'Your session has ended. Enter the password again, then try again.')
+    }
     throw new ApiRequestError(res.status, message)
   }
   return data as T
@@ -47,6 +64,10 @@ function statsQuery(q: StatsQuery): string {
 }
 
 export const api = {
+  getSession: () => request<SessionInfo>('GET', '/session'),
+  signIn: (password: string) => request<SessionInfo>('POST', '/session', { password }),
+  signOut: () => request<SessionInfo>('DELETE', '/session'),
+
   getStats: (q: StatsQuery) => request<StatsResponse>('GET', `/stats?${statsQuery(q)}`),
   listGroups: () => request<GroupSummary[]>('GET', '/groups'),
   getGroup: (id: string) => request<Group>('GET', `/groups/${enc(id)}`),

@@ -11,7 +11,7 @@ let app: ReturnType<typeof createApp>
 
 beforeEach(async () => {
   dataDir = await mkdtemp(path.join(tmpdir(), 'sb-attendance-api-'))
-  app = createApp({ dataDir })
+  app = createApp({ dataDir, auth: 'disabled' })
 })
 
 afterEach(async () => {

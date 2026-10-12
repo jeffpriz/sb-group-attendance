@@ -1,6 +1,6 @@
 # Example: run the app with its data stored on a mounted folder or file share.
 #
-#   docker compose up -d --build
+#   SITE_PASSWORD='your password' docker compose up -d --build
 #   open http://localhost:3001
 #
 # Set ATTENDANCE_DATA_PATH to the folder on the Docker host where data
@@ -23,6 +23,12 @@ services:
     environment:
       PORT: "3001"
       DATA_DIR: /data
+      # Required: the shared site password. Passed through from your shell or
+      # a .env file next to this file (not committed), e.g. SITE_PASSWORD=...
+      # Compose stops with an error if it isn't set.
+      SITE_PASSWORD: ${SITE_PASSWORD:?Set SITE_PASSWORD (the shared site password)}
+      # Optional: keeps people signed in across container restarts.
+      SESSION_SECRET: ${SESSION_SECRET:-}
     volumes:
       - ${ATTENDANCE_DATA_PATH:-./data}:/data
 
