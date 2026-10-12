@@ -9,6 +9,8 @@
 //     assigned to it, and that identity has "Key Vault Secrets User" on the vault
 //   - a storage account with a classic SMB file share
 //   - a Key Vault secret holding the storage account key
+//   - a Key Vault secret holding the shared SITE_PASSWORD (and optionally one
+//     holding SESSION_SECRET) in the same vault
 //   - an Azure Container Registry with the app image, and the identity has
 //     "AcrPull" on it
 //
@@ -17,6 +19,7 @@
 //     -p environmentName=<ENV_NAME> appName=<APP_NAME> identityName=<IDENTITY_NAME> \
 //        storageAccountName=<STORAGE_ACCOUNT> shareName=<SHARE_NAME> \
 //        keyVaultName=<KEY_VAULT> keyVaultSecretName=<SECRET_NAME> \
+//        sitePasswordSecretName=<SITE_PASSWORD_SECRET> sessionSecretName=<SESSION_SECRET_SECRET> \
 //        acrLoginServer=<REGISTRY>.azurecr.io image=<REGISTRY>.azurecr.io/sb-group-attendance:<TAG>
 
 @description('Location for the container app. Defaults to the resource group location.')
@@ -42,6 +45,12 @@ param keyVaultName string
 
 @description('Name of the Key Vault secret whose value is the storage account key.')
 param keyVaultSecretName string
+
+@description('Name of the Key Vault secret holding the shared site password (SITE_PASSWORD). The app refuses to start without it.')
+param sitePasswordSecretName string
+
+@description('Optional: name of the Key Vault secret holding SESSION_SECRET (keeps people signed in across restarts). Leave empty to use a random key per start.')
+param sessionSecretName string = ''
 
 @description('Name of the storage definition (link) in the environment.')
 param environmentStorageName string = 'attendance-files'
@@ -102,6 +111,28 @@ resource app 'Microsoft.App/containerApps@2025-07-01' = {
         transport: 'auto'
         allowInsecure: false
       }
+      // App secrets that are Key Vault references: ACA reads them with the
+      // managed identity (needs "Key Vault Secrets User"). Versionless URLs
+      // follow the latest version; ACA re-reads them periodically, and a new
+      // revision or restart picks up a change straight away.
+      secrets: concat(
+        [
+          {
+            name: 'site-password'
+            keyVaultUrl: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets/${sitePasswordSecretName}'
+            identity: identity.id
+          }
+        ],
+        empty(sessionSecretName)
+          ? []
+          : [
+              {
+                name: 'session-secret'
+                keyVaultUrl: 'https://${keyVaultName}${environment().suffixes.keyvaultDns}/secrets/${sessionSecretName}'
+                identity: identity.id
+              }
+            ]
+      )
       // Pull the image from ACR with the managed identity (needs AcrPull).
       registries: [
         {
@@ -119,10 +150,11 @@ resource app 'Microsoft.App/containerApps@2025-07-01' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: [
+          env: concat([
             { name: 'DATA_DIR', value: '/data' }
             { name: 'PORT', value: string(port) }
-          ]
+            { name: 'SITE_PASSWORD', secretRef: 'site-password' }
+          ], empty(sessionSecretName) ? [] : [{ name: 'SESSION_SECRET', secretRef: 'session-secret' }])
           volumeMounts: [
             {
               volumeName: 'attendance-data'

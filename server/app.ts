@@ -5,6 +5,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { isValidIsoDate, uniqueSortedDates } from '../shared/dates.ts'
 import { computeStats } from '../shared/stats.ts'
 import type { Group, GroupSummary, StatsResponse } from '../shared/types.ts'
+import { allowAll, type Auth, openSessionRoutes } from './auth.ts'
 import { GroupStore, HttpError } from './storage.ts'
 
 export interface AppOptions {
@@ -14,6 +15,11 @@ export interface AppOptions {
   store?: GroupStore
   /** Built frontend (Vite `dist/` folder) to serve, if it exists. */
   staticDir?: string
+  /**
+   * Site password sign-in. Required on purpose: pass `'disabled'` to run
+   * without a password (local development and tests only).
+   */
+  auth: Auth | 'disabled'
 }
 
 const MAX_NAME_LENGTH = 100
@@ -50,11 +56,14 @@ function toSummary(group: Group): GroupSummary {
   }
 }
 
-export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions) {
+export function createApp({ dataDir, store: givenStore, staticDir, auth }: AppOptions) {
   if (!givenStore && !dataDir) throw new Error('createApp needs a dataDir or a store')
   const store = givenStore ?? new GroupStore(dataDir!)
   const app = express()
   app.disable('x-powered-by')
+  // Azure Container Apps (and most hosts) terminate HTTPS at one proxy hop, so
+  // trust its X-Forwarded-* headers for req.secure / req.ip.
+  app.set('trust proxy', 1)
   app.use(express.json({ limit: '1mb' }))
 
   const api = express.Router()
@@ -63,6 +72,17 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
   api.get('/health', async (_req, res) => {
     const writable = await store.isWritable()
     res.status(writable ? 200 : 503).json({ ok: writable, dataWritable: writable })
+  })
+
+  // ---- Sign-in ------------------------------------------------------------
+  // Everything registered after requireSession needs a valid session cookie.
+
+  if (auth === 'disabled') openSessionRoutes(api)
+  else auth.routes(api)
+  api.use(auth === 'disabled' ? allowAll : auth.requireSession)
+  api.use((_req, res, next) => {
+    res.set('Cache-Control', 'no-store')
+    next()
   })
 
   // ---- Groups -------------------------------------------------------------

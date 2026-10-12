@@ -6,13 +6,18 @@ Group leaders and church admins use it to set up each group (name, members and m
 
 - **Groups:** one entry per small group.
 - **Members:** names only. No contact details or other personal information are stored.
-- **Data:** saved as plain JSON files on the server (one file per group). There is no database and no login.
+- **Data:** saved as plain JSON files on the server (one file per group). There is no database.
+- **Access:** one shared site password (set by the server's `SITE_PASSWORD` setting). Everyone enters it to use the site, and it has to be entered again every hour.
 
 ---
 
 ## Using the app
 
 The home page (**Groups**) lists every group, with its member count, meeting count and next meeting. Click a group to open it. Each group has four tabs: **Attendance**, **Members**, **Schedule** and **History**.
+
+### Signing in
+
+Every page asks for the site password first. After you enter it you can use the whole site for **one hour** from when you signed in (it doesn't extend while you use it). Then the password is asked for again. If that happens while you're taking attendance, your checkmarks stay on the screen: enter the password and click **Save attendance** again. **Log out** in the header ends the session straight away (useful on a shared computer).
 
 ### 1. Create a group
 
@@ -101,11 +106,14 @@ In development, Vite serves the website and forwards `/api` requests to the Expr
 │   │   ├── SchedulePage.tsx      # Meeting calendar + repeating meetings
 │   │   ├── HistoryPage.tsx       # Stats, by meeting/member, grid, CSV
 │   │   └── StatsPage.tsx         # Statistics: filters, pie/line charts, per-group table
+│   ├── auth.tsx, authContext.ts  # Sign-in state, session-expired dialog
+│   ├── components/LoginForm.tsx  # Password form (show/hide)
 │   ├── api.ts                # Typed fetch calls to the API
 │   └── index.css             # All styling (mobile-first)
 ├── server/                   # API server (Express)
 │   ├── index.ts              # Startup: reads env vars/.env, checks the data folder, listens
 │   ├── app.ts                # API routes and validation
+│   ├── auth.ts               # Site password: signed session cookie, sign-in rate limit
 │   ├── storage.ts            # JSON file storage (atomic writes, per-group queue)
 │   └── *.test.ts             # API and storage tests
 ├── shared/                   # Code used by both website and server
@@ -128,9 +136,14 @@ In development, Vite serves the website and forwards `/api` requests to the Expr
 
 All endpoints are under `/api` and send and receive JSON. Every change returns the updated group.
 
+**Sign-in:** apart from `/health` and `/session`, every endpoint needs the session cookie from `POST /session`. Without it the response is `401 { "error": …, "code": "auth_required" }`. The cookie (`sb_session`) is `HttpOnly`, `SameSite=Strict`, `Max-Age=3600`, and `Secure` over HTTPS. Its value is `v1.<issued>.<expires>.<HMAC-SHA256 signature>`, and the server keeps no session data. The signing key comes from `SESSION_SECRET` (or a random startup key) together with a hash of `SITE_PASSWORD`, so changing the password signs everyone out. Sessions end at a fixed time one hour after signing in; using the site doesn't extend them. `/health` only returns `{ ok, dataWritable }`, so Azure's health probes work without signing in.
+
 | Method | Path | Body | Purpose |
 | ------ | ---- | ---- | ------- |
 | GET | `/health` | | `{ ok, dataWritable }`; returns 503 if the data folder can't be written |
+| GET | `/session` | | `{ required, authenticated, expiresAt? }` (always allowed) |
+| POST | `/session` | `{ password }` | Sign in: sets the session cookie. `401` for a wrong password, `429` after 10 failed tries in 15 minutes from one IP |
+| DELETE | `/session` | | Sign out (clears the cookie) |
 | GET | `/groups` | | List groups (summary) |
 | POST | `/groups` | `{ name }` | Create a group |
 | GET | `/groups/:groupId` | | Get one group (members, meetings, attendance) |
@@ -200,6 +213,7 @@ npm run dev
 - The API server runs on **http://localhost:3001** and restarts when you edit `server/` or `shared/`.
 - Data goes to `./data/groups/*.json`. Delete that folder to start fresh.
 - Stop both servers with **Ctrl+C**.
+- **Password:** without `SITE_PASSWORD` the site is open locally, and the server prints a warning. To try the sign-in page, add `SITE_PASSWORD=change-me-local-dev` to `.env` and restart.
 
 **Optional local settings:** run `cp .env.example .env` and edit `.env` to set any of the [configuration](#configuration) variables. The server reads `.env` at startup, and the dev proxy picks up `PORT`. Variables set in your shell take precedence. `.env` is gitignored.
 
@@ -234,6 +248,10 @@ Set these in your shell, in a local `.env` file, with `docker run -e`, or as env
 | `DATA_DIR` | `./data` in the project folder (`/data` in Docker) | Folder for the JSON data. Absolute paths are used as-is; relative paths are resolved from the current directory. |
 | `PORT` | `3001` | Port the server listens on. |
 | `HOST` | `0.0.0.0` | Address the server binds to (all network interfaces). Use `127.0.0.1` for this computer only. |
+| `SITE_PASSWORD` | none | The shared site password. **Required when `NODE_ENV=production`** (as in the Docker image): the server refuses to start without it. In development it's optional; without it the site is open and a warning is logged. Read at startup, so changing it needs a restart, not a rebuild. Changing it signs everyone out. |
+| `SESSION_SECRET` | random at startup | Key for signing sign-in cookies. Set a long random value to keep people signed in across restarts. Without it, a restart signs everyone out. |
+| `SESSION_TTL_MINUTES` | `60` | Sign-in length in minutes, 1–60. It can't be set above one hour. |
+| `COOKIE_SECURE` | `auto` | `auto` marks the cookie `Secure` when the request came over HTTPS (Azure's HTTPS proxy counts). `true` / `false` force it. |
 | `ATTENDANCE_DATA_PATH` | `./data` | **docker-compose.yml only:** host folder mounted into the container at `/data`. |
 
 On startup the server creates `DATA_DIR/groups/` if it's missing, checks that it can write there, and logs `Data folder: …`. If it can't write, it prints an error and exits instead of starting.
@@ -247,12 +265,13 @@ On startup the server creates `DATA_DIR/groups/` if it's missing, checks that it
 ```bash
 docker build -t sb-group-attendance .
 docker run -d --name sb-attendance --init --restart unless-stopped \
-  -p 3001:3001 -v /path/to/share/sb-group-attendance:/data sb-group-attendance
+  -p 3001:3001 -e SITE_PASSWORD='your password' -e SESSION_SECRET="$(openssl rand -hex 32)" \
+  -v /path/to/share/sb-group-attendance:/data sb-group-attendance
 ```
 
-The mounted folder must be writable by **uid 1000**. For a local folder, `chown 1000:1000` it. For an SMB/CIFS share (such as Azure Files), mount it with `uid=1000,gid=1000,dir_mode=0770,file_mode=0660`. Or use Docker Compose: `ATTENDANCE_DATA_PATH=/path/to/share docker compose up -d --build`. `docker-compose.yml` also has a commented example for mounting an Azure Files SMB share directly.
+The mounted folder must be writable by **uid 1000**. For a local folder, `chown 1000:1000` it. For an SMB/CIFS share (such as Azure Files), mount it with `uid=1000,gid=1000,dir_mode=0770,file_mode=0660`. Or use Docker Compose: `SITE_PASSWORD='…' ATTENDANCE_DATA_PATH=/path/to/share docker compose up -d --build`. `docker-compose.yml` also has a commented example for mounting an Azure Files SMB share directly.
 
-**Azure Container Apps:** see **[docs/azure-container-apps.md](docs/azure-container-apps.md)** and the example [`deploy/azure-container-apps/main.bicep`](deploy/azure-container-apps/main.bicep). The data lives on an Azure Files SMB volume mounted at `/data`, and the storage account key is kept in Key Vault and used by the Container Apps environment, not by the app. The app only needs `DATA_DIR=/data`.
+**Azure Container Apps:** see **[docs/azure-container-apps.md](docs/azure-container-apps.md)** and the example [`deploy/azure-container-apps/main.bicep`](deploy/azure-container-apps/main.bicep). The data lives on an Azure Files SMB volume mounted at `/data`, and the storage account key is kept in Key Vault and used by the Container Apps environment, not by the app. The app needs `DATA_DIR=/data` and `SITE_PASSWORD`. Store the password as a Container Apps secret, ideally a Key Vault reference, and pass it to the app with `secretRef`. See [Site password](docs/azure-container-apps.md#site-password).
 
 ---
 

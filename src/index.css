@@ -631,6 +631,99 @@ a:focus-visible {
   gap: 0.5rem;
 }
 
+/* ---- Sign-in --------------------------------------------------------- */
+
+.sign-out {
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #fff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 8px;
+  padding: 0.35rem 0.7rem;
+  margin-left: 0.25rem;
+  cursor: pointer;
+}
+
+.sign-out:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sign-out:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+
+.login-wrap {
+  display: flex;
+  justify-content: center;
+  padding-top: 1.5rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-card h1,
+.login-card h2 {
+  margin-top: 0;
+}
+
+.login-form .field {
+  margin-bottom: 0.35rem;
+}
+
+.password-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.password-row input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 1rem;
+  padding: 0.6rem 0.7rem;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.password-row input:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.password-row input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.password-toggle {
+  min-width: 4.5rem;
+}
+
+.login-submit {
+  width: 100%;
+  margin-top: 1rem;
+  min-height: 44px;
+}
+
+.session-dialog {
+  margin: auto;
+  border: 1px solid var(--border);
+  width: calc(100% - 2rem);
+}
+
+.session-dialog::backdrop {
+  background: rgba(16, 24, 40, 0.55);
+}
+
+.session-dialog-out {
+  margin-top: 0.75rem;
+}
+
 /* ---- Statistics ------------------------------------------------------ */
 
 .sr-only {
@@ -825,14 +918,33 @@ a:focus-visible {
     display: none;
   }
 
+  .brand {
+    gap: 0.5rem;
+  }
+
+  .brand img {
+    width: 30px;
+    height: 30px;
+  }
+
   .brand-app {
-    font-size: 1.05rem;
+    font-size: 0.95rem;
     line-height: 1.2;
   }
 
-  .site-nav a {
-    padding: 0.4rem 0.5rem;
-    font-size: 0.9rem;
+  .site-header {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .site-nav a,
+  .sign-out {
+    padding: 0.35rem 0.45rem;
+    font-size: 0.85rem;
+  }
+
+  .header-inner {
+    gap: 0.4rem;
   }
 }
 
