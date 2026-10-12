@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { isValidIsoDate, uniqueSortedDates } from '../shared/dates.ts'
-import type { Group, GroupSummary } from '../shared/types.ts'
+import { computeStats } from '../shared/stats.ts'
+import type { Group, GroupSummary, StatsResponse } from '../shared/types.ts'
 import { GroupStore, HttpError } from './storage.ts'
 
 export interface AppOptions {
@@ -188,6 +189,32 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
       delete findMeeting(g, date).attendance
     })
     res.json(group)
+  })
+
+  // Attendance statistics. Query: group (repeatable; all groups if omitted),
+  // from / to (YYYY-MM-DD, inclusive), today (the client's local date, so
+  // "missed" vs "upcoming" matches the user's calendar, not the server's).
+  api.get('/stats', async (req, res) => {
+    const list = (v: unknown): string[] =>
+      (Array.isArray(v) ? v : v === undefined ? [] : [v]).filter((x): x is string => typeof x === 'string' && x !== '')
+    const optionalDate = (v: unknown, label: string): string | undefined => {
+      if (v === undefined || v === '') return undefined
+      if (typeof v !== 'string' || !isValidIsoDate(v)) throw new HttpError(400, `"${label}" must look like YYYY-MM-DD`)
+      return v
+    }
+    const from = optionalDate(req.query.from, 'from')
+    const to = optionalDate(req.query.to, 'to')
+    const today = optionalDate(req.query.today, 'today') ?? new Date().toISOString().slice(0, 10)
+    if (from && to && from > to) throw new HttpError(400, '"from" must be on or before "to"')
+    const groups = await store.list()
+    const known = new Set(groups.map((g) => g.id))
+    const groupIds = list(req.query.group).filter((id) => known.has(id))
+    const body: StatsResponse = {
+      ...computeStats(groups, { groupIds, from, to, today }),
+      filter: { groupIds, from, to, today },
+      allGroups: groups.map((g) => ({ id: g.id, name: g.name })).sort((a, b) => a.name.localeCompare(b.name)),
+    }
+    res.json(body)
   })
 
   api.use((_req, _res, next) => next(new HttpError(404, 'Not found')))

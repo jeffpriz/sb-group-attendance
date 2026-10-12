@@ -1,3 +1,5 @@
+import type { AttendanceStats, StatsFilter } from './stats.ts'
+
 /** A person who belongs to a group. Only a name is tracked. */
 export interface Member {
   id: string
@@ -48,4 +50,10 @@ export interface GroupSummary {
 
 export interface ApiError {
   error: string
+}
+
+/** GET /api/stats response. Unknown group IDs in the request are dropped from `filter.groupIds`. */
+export interface StatsResponse extends AttendanceStats {
+  filter: StatsFilter
+  allGroups: { id: string; name: string }[]
 }

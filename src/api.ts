@@ -1,4 +1,4 @@
-import type { Group, GroupSummary } from '../shared/types.ts'
+import type { Group, GroupSummary, StatsResponse } from '../shared/types.ts'
 
 export class ApiRequestError extends Error {
   readonly status: number
@@ -30,7 +30,24 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 
 const enc = encodeURIComponent
 
+export interface StatsQuery {
+  groupIds: string[]
+  from?: string
+  to?: string
+  today: string
+}
+
+function statsQuery(q: StatsQuery): string {
+  const params = new URLSearchParams()
+  for (const id of q.groupIds) params.append('group', id)
+  if (q.from) params.set('from', q.from)
+  if (q.to) params.set('to', q.to)
+  params.set('today', q.today)
+  return params.toString()
+}
+
 export const api = {
+  getStats: (q: StatsQuery) => request<StatsResponse>('GET', `/stats?${statsQuery(q)}`),
   listGroups: () => request<GroupSummary[]>('GET', '/groups'),
   getGroup: (id: string) => request<Group>('GET', `/groups/${enc(id)}`),
   createGroup: (name: string) => request<Group>('POST', '/groups', { name }),

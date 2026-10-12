@@ -4,7 +4,7 @@ import { formatDate, todayIso } from '../../shared/dates.ts'
 import { api } from '../api.ts'
 import Notice from '../components/Notice.tsx'
 import { useGroup } from '../groupContext.ts'
-import { errorMessage, meetingRoster } from '../util.ts'
+import { editableRoster, errorMessage } from '../util.ts'
 
 /** Mark which members attended one meeting. */
 export default function AttendancePage() {
@@ -38,7 +38,7 @@ export default function AttendancePage() {
 function AttendanceChecklist({ date, previous, next }: { date: string; previous?: string; next?: string }) {
   const { group, setGroup } = useGroup()
   const meeting = group.meetings.find((m) => m.date === date)!
-  const roster = useMemo(() => meetingRoster(group, meeting), [group, meeting])
+  const roster = useMemo(() => editableRoster(group, meeting), [group, meeting])
   const savedIds = meeting.attendance?.presentMemberIds
   const [present, setPresent] = useState<Set<string>>(() => new Set(savedIds ?? []))
   const [saving, setSaving] = useState(false)

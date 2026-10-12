@@ -80,8 +80,47 @@ a {
   gap: 0.75rem;
   color: inherit;
   text-decoration: none;
+  min-width: 0;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   max-width: 960px;
   margin: 0 auto;
+}
+
+.site-nav {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.site-nav a {
+  color: #fff;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  opacity: 0.85;
+}
+
+.site-nav a:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.site-nav a.active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.site-nav a:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
 }
 
 .brand img {
@@ -590,6 +629,211 @@ a:focus-visible {
   margin: 0;
   display: grid;
   gap: 0.5rem;
+}
+
+/* ---- Statistics ------------------------------------------------------ */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.stats-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  align-items: flex-end;
+}
+
+.stats-filters > .field {
+  flex: 1 1 280px;
+  margin: 0;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.35rem 0.8rem;
+  min-height: 36px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--brand);
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.chip:focus-visible,
+.segmented button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.date-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: flex-end;
+}
+
+.date-range .field {
+  margin: 0;
+}
+
+.date-range input {
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-height: 38px;
+}
+
+.date-range .link-button {
+  min-height: 38px;
+}
+
+.stats-body.is-loading {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.stats-scope {
+  margin: 0.25rem 0 0.75rem;
+}
+
+.stat-of {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.chart-grid .card {
+  margin: 0;
+  min-width: 0;
+}
+
+.chart-card h2 {
+  margin-top: 0;
+}
+
+.chart {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pie-chart {
+  height: 240px;
+}
+
+.line-chart {
+  height: 240px;
+}
+
+.pie-center {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 18px);
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text);
+  pointer-events: none;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segmented button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.7rem;
+  min-height: 32px;
+  border: 0;
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--brand);
+  color: #fff;
+}
+
+.stats-table td:last-child {
+  color: var(--brand);
+}
+
+.how-calculated {
+  margin-top: 1rem;
+}
+
+.how-calculated summary {
+  cursor: pointer;
+}
+
+.how-calculated p {
+  margin: 0.5rem 0 0;
+  max-width: 65ch;
+}
+
+@media (max-width: 720px) {
+  .chart-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .brand-church {
+    display: none;
+  }
+
+  .brand-app {
+    font-size: 1.05rem;
+    line-height: 1.2;
+  }
+
+  .site-nav a {
+    padding: 0.4rem 0.5rem;
+    font-size: 0.9rem;
+  }
 }
 
 @media (min-width: 640px) {

@@ -1,4 +1,5 @@
-import { Link, Route, Routes } from 'react-router'
+import { lazy, Suspense } from 'react'
+import { Link, NavLink, Route, Routes } from 'react-router'
 import AttendancePage from './pages/AttendancePage.tsx'
 import GroupLayout from './pages/GroupLayout.tsx'
 import GroupsPage from './pages/GroupsPage.tsx'
@@ -7,17 +8,28 @@ import MeetingsPage from './pages/MeetingsPage.tsx'
 import MembersPage from './pages/MembersPage.tsx'
 import SchedulePage from './pages/SchedulePage.tsx'
 
+// Charts are only needed on this page, so load them on demand.
+const StatsPage = lazy(() => import('./pages/StatsPage.tsx'))
+
 export default function App() {
   return (
     <div className="app">
       <header className="site-header">
-        <Link to="/" className="brand">
-          <img src="/favicon.svg" alt="" width={36} height={36} />
-          <span>
-            <span className="brand-church">Springbrook Community Church</span>
-            <span className="brand-app">Group Attendance</span>
-          </span>
-        </Link>
+        <div className="header-inner">
+          <Link to="/" className="brand">
+            <img src="/favicon.svg" alt="" width={36} height={36} />
+            <span>
+              <span className="brand-church">Springbrook Community Church</span>
+              <span className="brand-app">Group Attendance</span>
+            </span>
+          </Link>
+          <nav className="site-nav" aria-label="Main">
+            <NavLink to="/" end>
+              Groups
+            </NavLink>
+            <NavLink to="/stats">Statistics</NavLink>
+          </nav>
+        </div>
       </header>
       <main className="content">
         <Routes>
@@ -29,6 +41,14 @@ export default function App() {
             <Route path="history" element={<HistoryPage />} />
             <Route path="meetings/:date" element={<AttendancePage />} />
           </Route>
+          <Route
+            path="stats"
+            element={
+              <Suspense fallback={<p className="muted">Loading statistics…</p>}>
+                <StatsPage />
+              </Suspense>
+            }
+          />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>

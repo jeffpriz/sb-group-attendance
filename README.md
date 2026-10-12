@@ -56,6 +56,18 @@ The **History** tab (once at least one meeting has attendance) shows:
 - **Attendance grid:** members × meetings with ✓ marks.
 - **Download CSV:** the grid as a spreadsheet file.
 
+### 6. Statistics
+
+Click **Statistics** in the header (or **View statistics** on the home page) to see attendance across groups.
+
+- **Groups:** **All groups** (the default), or tap one or more group names to include only those groups. Use **From** / **To** to limit the dates. Filters are kept in the page address (for example `/stats?group=<id>&from=2026-09-01`), so you can bookmark or share a view.
+- **Attendance %**, people **present / expected**, and the number of meetings recorded. Past meetings without attendance taken are listed separately and are not counted.
+- **Present vs absent:** a pie chart of all the attendance marks.
+- **By week:** a line chart of attendance per week. Weeks run Sunday to Saturday, so a Sunday group and a Wednesday group in the same week are combined (labelled by the Sunday, e.g. "Oct 11"). Switch between **%** and **Present** (head count). Weeks with no attendance show as gaps.
+- **By group:** meetings recorded, meetings not taken, present / expected and attendance % for each group.
+
+**How the percentage is calculated:** attendance % = people marked present ÷ people expected, added up over every meeting where attendance was taken (so bigger groups and more meetings count for more). Meetings without attendance are left out. A member is *expected* at a meeting if they were in the group on the meeting day or when attendance was saved; anyone marked present is always counted. Members who were later removed still count for the meetings they belonged to, and members added later don't count against earlier meetings. The meeting and history pages use the same rule for who was absent.
+
 ---
 
 ## How the code is organized
@@ -67,6 +79,7 @@ The **History** tab (once at least one meeting has attendance) shows:
 | Website | [React](https://react.dev) 19 + TypeScript, built with [Vite](https://vite.dev) |
 | Page navigation | [React Router](https://reactrouter.com) |
 | Calendar | [React DayPicker](https://daypicker.dev) (multiple-date selection) |
+| Charts | [Recharts](https://recharts.org) (statistics page, loaded only when opened) |
 | API server | [Express](https://expressjs.com) 5 in TypeScript, run with [tsx](https://tsx.is) |
 | Storage | JSON files on disk, one per group |
 | Tests / lint | [Vitest](https://vitest.dev) + Supertest, [oxlint](https://oxc.rs) |
@@ -78,7 +91,7 @@ In development, Vite serves the website and forwards `/api` requests to the Expr
 ```
 ├── src/                      # Website (React)
 │   ├── main.tsx              # Entry point: router + global styles
-│   ├── App.tsx               # Header and page routes
+│   ├── App.tsx               # Header, navigation and page routes
 │   ├── pages/                # One component per page/tab
 │   │   ├── GroupsPage.tsx        # Home: group list + "Create a group"
 │   │   ├── GroupLayout.tsx       # Loads a group, shows its name and tabs
@@ -86,7 +99,8 @@ In development, Vite serves the website and forwards `/api` requests to the Expr
 │   │   ├── AttendancePage.tsx    # Check off members for one meeting
 │   │   ├── MembersPage.tsx       # Add/rename/remove members, group settings
 │   │   ├── SchedulePage.tsx      # Meeting calendar + repeating meetings
-│   │   └── HistoryPage.tsx       # Stats, by meeting/member, grid, CSV
+│   │   ├── HistoryPage.tsx       # Stats, by meeting/member, grid, CSV
+│   │   └── StatsPage.tsx         # Statistics: filters, pie/line charts, per-group table
 │   ├── api.ts                # Typed fetch calls to the API
 │   └── index.css             # All styling (mobile-first)
 ├── server/                   # API server (Express)
@@ -97,7 +111,9 @@ In development, Vite serves the website and forwards `/api` requests to the Expr
 ├── shared/                   # Code used by both website and server
 │   ├── types.ts              # Group / Member / Meeting types (the data model)
 │   ├── dates.ts              # Date helpers (YYYY-MM-DD, repeating dates)
-│   └── dates.test.ts
+│   ├── weeks.ts              # Sunday-start week bucketing (time-zone safe)
+│   ├── stats.ts              # Attendance statistics (who is expected, totals, weeks, groups)
+│   └── *.test.ts
 ├── data/                     # Default data folder (contents are gitignored)
 ├── docs/azure-container-apps.md      # Azure deployment guide
 ├── deploy/azure-container-apps/      # Example Bicep file for Azure
@@ -126,8 +142,11 @@ All endpoints are under `/api` and send and receive JSON. Every change returns t
 | PUT | `/groups/:groupId/meetings` | `{ dates: ["2026-10-07", …], force? }` | Replace the meeting schedule |
 | PUT | `/groups/:groupId/meetings/:date/attendance` | `{ presentMemberIds: [...] }` | Save attendance for a meeting |
 | DELETE | `/groups/:groupId/meetings/:date/attendance` | | Clear attendance for a meeting |
+| GET | `/stats?group=…&from=…&to=…&today=…` | | Attendance statistics (see below) |
 
 `PUT …/meetings` keeps attendance for dates that stay on the schedule. Removing a date that already has attendance returns `409` unless `force: true` is sent. Attendance can only be saved for a scheduled date.
+
+`GET /stats` query parameters are all optional: `group` (repeat for several groups; all groups if omitted; unknown IDs are ignored), `from` / `to` (`YYYY-MM-DD`, inclusive), and `today` (the browser's local date, used to tell missed meetings from upcoming ones; defaults to the server's UTC date). The response has `totals` (`present`, `expected`, `absent`, `rate` 0–1 or `null`, `meetingsWithAttendance`, `meetingsWithoutAttendance`, `upcomingMeetings`), `weeks` (one entry per Sunday-start week from the first to the last recorded week, with `weekStart`, `meetings` and the same counts), `groups` (per-group counts), `filter` (what was applied) and `allGroups` (`id` and `name` for the group picker). The calculation lives in `shared/stats.ts`.
 
 ### Data model
 

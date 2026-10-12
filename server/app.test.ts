@@ -128,3 +128,47 @@ describe('API', () => {
     await request(app).post('/api/groups').set('Content-Type', 'application/json').send('{bad').expect(400)
   })
 })
+
+describe('GET /api/stats', () => {
+  it('returns totals, weekly and per-group stats, honouring filters', async () => {
+    const group = await createGroupWithMembers(['Ann', 'Ben', 'Cal', 'Dee'])
+    const other = (await request(app).post('/api/groups').send({ name: 'Another Group' }).expect(201)).body as Group
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings`)
+      .send({ dates: ['2026-09-30', '2026-10-07', '2026-10-14'] })
+      .expect(200)
+    const [ann, ben] = group.members
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings/2026-09-30/attendance`)
+      .send({ presentMemberIds: [ann.id, ben.id] })
+      .expect(200)
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings/2026-10-07/attendance`)
+      .send({ presentMemberIds: [ann.id] })
+      .expect(200)
+
+    const all = await request(app).get('/api/stats?today=2026-10-14').expect(200)
+    expect(all.body.totals).toMatchObject({
+      present: 3,
+      expected: 8,
+      absent: 5,
+      meetingsWithAttendance: 2,
+      meetingsWithoutAttendance: 1,
+      upcomingMeetings: 0,
+    })
+    expect(all.body.weeks.map((w: { weekStart: string }) => w.weekStart)).toEqual(['2026-09-27', '2026-10-04'])
+    expect(all.body.allGroups.map((g: { name: string }) => g.name)).toEqual(['Another Group', 'Wednesday Group'])
+
+    const filtered = await request(app)
+      .get(`/api/stats?group=${other.id}&group=unknown&today=2026-10-14`)
+      .expect(200)
+    expect(filtered.body.filter.groupIds).toEqual([other.id])
+    expect(filtered.body.totals.rate).toBeNull()
+
+    const ranged = await request(app).get('/api/stats?from=2026-10-01&to=2026-10-31&today=2026-10-14').expect(200)
+    expect(ranged.body.totals).toMatchObject({ present: 1, expected: 4 })
+
+    await request(app).get('/api/stats?from=10/01/2026').expect(400)
+    await request(app).get('/api/stats?from=2026-10-31&to=2026-10-01').expect(400)
+  })
+})

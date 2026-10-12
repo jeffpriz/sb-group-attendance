@@ -36,7 +36,14 @@ export default function GroupsPage() {
 
   return (
     <>
-      <h1>Groups</h1>
+      <div className="section-head">
+        <h1>Groups</h1>
+        {groups && groups.length > 0 && (
+          <Link to="/stats" className="button">
+            View statistics
+          </Link>
+        )}
+      </div>
       {error && <Notice kind="error">{error}</Notice>}
 
       {groups === undefined && !error && <p className="muted">Loading groups…</p>}
