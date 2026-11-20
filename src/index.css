@@ -173,6 +173,12 @@ section {
   flex-wrap: wrap;
 }
 
+.section-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .back-link {
   display: inline-block;
   margin-bottom: 0.5rem;
@@ -379,6 +385,8 @@ a:focus-visible {
   box-shadow: var(--shadow);
   text-decoration: none;
   color: var(--text);
+  min-height: 100%;
+  padding-right: 5.5rem;
 }
 
 .group-card:hover {
@@ -394,6 +402,17 @@ a:focus-visible {
 .group-card-meta {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.group-list-item {
+  position: relative;
+}
+
+.group-card-action {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  z-index: 1;
 }
 
 .empty {

@@ -43,6 +43,8 @@ export interface Group {
   name: string
   createdAt: string
   updatedAt: string
+  /** Set while the group is hidden from the active groups list. */
+  archivedAt?: string
   members: Member[]
   /** Always kept sorted by date, ascending, with no duplicates. */
   meetings: Meeting[]
@@ -52,6 +54,7 @@ export interface Group {
 export interface GroupSummary {
   id: string
   name: string
+  archived: boolean
   memberCount: number
   meetingDates: string[]
   recordedMeetingCount: number

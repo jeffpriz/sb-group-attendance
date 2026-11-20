@@ -52,6 +52,8 @@ export const api = {
   getGroup: (id: string) => request<Group>('GET', `/groups/${enc(id)}`),
   createGroup: (name: string) => request<Group>('POST', '/groups', { name }),
   renameGroup: (id: string, name: string) => request<Group>('PATCH', `/groups/${enc(id)}`, { name }),
+  setGroupArchived: (id: string, archived: boolean) =>
+    request<Group>('PATCH', `/groups/${enc(id)}`, { archived }),
   deleteGroup: (id: string) => request<void>('DELETE', `/groups/${enc(id)}`),
 
   addMember: (groupId: string, name: string) =>
