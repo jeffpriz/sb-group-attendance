@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { formatDate, todayIso } from '../../shared/dates.ts'
 import type { GroupSummary } from '../../shared/types.ts'
 import { api } from '../api.ts'
@@ -11,7 +11,10 @@ export default function GroupsPage() {
   const [error, setError] = useState<string>()
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [changingId, setChangingId] = useState<string>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const showingArchived = searchParams.get('view') === 'archived'
 
   useEffect(() => {
     document.title = 'Group Attendance · Springbrook Community Church'
@@ -32,33 +35,67 @@ export default function GroupsPage() {
     }
   }
 
+  async function setArchived(group: GroupSummary) {
+    setChangingId(group.id)
+    setError(undefined)
+    try {
+      await api.setGroupArchived(group.id, !group.archived)
+      setGroups((current) =>
+        current?.map((item) => (item.id === group.id ? { ...item, archived: !item.archived } : item)),
+      )
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setChangingId(undefined)
+    }
+  }
+
   const today = todayIso()
+  const activeCount = groups?.filter((group) => !group.archived).length
+  const archivedCount = groups?.filter((group) => group.archived).length
+  const visibleGroups = groups?.filter((group) => group.archived === showingArchived)
 
   return (
     <>
       <div className="section-head">
-        <h1>Groups</h1>
-        {groups && groups.length > 0 && (
-          <Link to="/stats" className="button">
-            View statistics
+        <h1>{showingArchived ? 'Archived groups' : 'Groups'}</h1>
+        <div className="section-actions">
+          <Link to={showingArchived ? '/' : '/?view=archived'} className="button">
+            {showingArchived
+              ? `Active groups${activeCount === undefined ? '' : ` (${activeCount})`}`
+              : `Archived groups${archivedCount === undefined ? '' : ` (${archivedCount})`}`}
           </Link>
-        )}
+          {groups && groups.length > 0 && (
+            <Link to="/stats" className="button">
+              View statistics
+            </Link>
+          )}
+        </div>
       </div>
+      {showingArchived && (
+        <p className="muted">
+          Archived groups are kept with all their members, meetings, and attendance history.
+        </p>
+      )}
       {error && <Notice kind="error">{error}</Notice>}
 
       {groups === undefined && !error && <p className="muted">Loading groups…</p>}
-      {groups?.length === 0 && (
+      {visibleGroups?.length === 0 && (
         <div className="card empty">
-          <p>No groups yet. Start by creating your first group below.</p>
+          <p>
+            {showingArchived
+              ? 'No archived groups.'
+              : 'No active groups yet. Restore an archived group or create one below.'}
+          </p>
         </div>
       )}
 
-      {groups && groups.length > 0 && (
+      {visibleGroups && visibleGroups.length > 0 && (
         <ul className="group-list">
-          {groups.map((group) => {
+          {visibleGroups.map((group) => {
             const next = group.meetingDates.find((d) => d >= today)
             return (
-              <li key={group.id}>
+              <li key={group.id} className="group-list-item">
                 <Link to={`/groups/${group.id}`} className="group-card">
                   <span className="group-card-name">{group.name}</span>
                   <span className="group-card-meta">
@@ -72,30 +109,41 @@ export default function GroupsPage() {
                       : 'No upcoming meetings'}
                   </span>
                 </Link>
+                <button
+                  type="button"
+                  className="group-card-action link-button"
+                  onClick={() => void setArchived(group)}
+                  disabled={changingId === group.id}
+                  aria-label={`${group.archived ? 'Restore' : 'Archive'} ${group.name}`}
+                >
+                  {changingId === group.id ? 'Saving…' : group.archived ? 'Restore' : 'Archive'}
+                </button>
               </li>
             )
           })}
         </ul>
       )}
 
-      <form className="card" onSubmit={createGroup}>
-        <h2>Create a group</h2>
-        <label className="field">
-          <span>Group name</span>
-          <div className="input-row">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Tuesday Night Men's Group"
-              maxLength={100}
-              required
-            />
-            <button type="submit" className="primary" disabled={creating || !name.trim()}>
-              {creating ? 'Creating…' : 'Create group'}
-            </button>
-          </div>
-        </label>
-      </form>
+      {!showingArchived && (
+        <form className="card" onSubmit={createGroup}>
+          <h2>Create a group</h2>
+          <label className="field">
+            <span>Group name</span>
+            <div className="input-row">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Tuesday Night Men's Group"
+                maxLength={100}
+                required
+              />
+              <button type="submit" className="primary" disabled={creating || !name.trim()}>
+                {creating ? 'Creating…' : 'Create group'}
+              </button>
+            </div>
+          </label>
+        </form>
+      )}
     </>
   )
 }

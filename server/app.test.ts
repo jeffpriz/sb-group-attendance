@@ -53,6 +53,7 @@ describe('API', () => {
       {
         id: group.id,
         name: 'Wednesday Group',
+        archived: false,
         memberCount: 3,
         meetingDates: ['2026-10-07', '2026-10-14'],
         recordedMeetingCount: 1,
@@ -205,6 +206,37 @@ describe('API', () => {
     const group = await createGroupWithMembers([])
     await request(app).delete(`/api/groups/${group.id}`).expect(204)
     await request(app).get(`/api/groups/${group.id}`).expect(404)
+  })
+
+  it('archives and restores a group without deleting its history', async () => {
+    const group = await createGroupWithMembers(['Ann'])
+
+    const archived = await request(app)
+      .patch(`/api/groups/${group.id}`)
+      .send({ archived: true })
+      .expect(200)
+    expect(archived.body.archivedAt).toBeTruthy()
+
+    const listed = await request(app).get('/api/groups').expect(200)
+    expect(listed.body).toEqual([
+      {
+        id: group.id,
+        name: group.name,
+        archived: true,
+        memberCount: 1,
+        meetingDates: [],
+        recordedMeetingCount: 0,
+      },
+    ])
+    const direct = await request(app).get(`/api/groups/${group.id}`).expect(200)
+    expect(direct.body.members).toHaveLength(1)
+
+    const restored = await request(app)
+      .patch(`/api/groups/${group.id}`)
+      .send({ archived: false })
+      .expect(200)
+    expect(restored.body.archivedAt).toBeUndefined()
+    await request(app).patch(`/api/groups/${group.id}`).send({ archived: 'yes' }).expect(400)
   })
 
   it('returns JSON errors for unknown API routes and bad JSON', async () => {

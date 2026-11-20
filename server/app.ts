@@ -44,6 +44,7 @@ function toSummary(group: Group): GroupSummary {
   return {
     id: group.id,
     name: group.name,
+    archived: Boolean(group.archivedAt),
     memberCount: group.members.filter((m) => !m.removedAt).length,
     meetingDates: group.meetings.map((m) => m.date),
     recordedMeetingCount: group.meetings.filter((m) => m.attendance).length,
@@ -85,9 +86,19 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
   })
 
   api.patch('/groups/:groupId', async (req, res) => {
-    const name = requireName(req.body?.name, 'Group name')
+    const hasName = req.body?.name !== undefined
+    const hasArchived = req.body?.archived !== undefined
+    if (!hasName && !hasArchived) throw new HttpError(400, 'Provide a group name or archived status')
+    const name = hasName ? requireName(req.body.name, 'Group name') : undefined
+    if (hasArchived && typeof req.body.archived !== 'boolean') {
+      throw new HttpError(400, 'Archived status must be true or false')
+    }
     const group = await store.update(req.params.groupId, (g) => {
-      g.name = name
+      if (name !== undefined) g.name = name
+      if (hasArchived) {
+        if (req.body.archived) g.archivedAt = g.archivedAt ?? new Date().toISOString()
+        else delete g.archivedAt
+      }
     })
     res.json(group)
   })
