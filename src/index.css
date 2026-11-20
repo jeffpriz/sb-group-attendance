@@ -517,6 +517,31 @@ a:focus-visible {
   font-weight: 600;
 }
 
+.track-session-list {
+  padding-left: 1.5rem;
+}
+
+.track-session-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.track-session-list li:last-child {
+  border-bottom: 0;
+}
+
+.track-session-list form {
+  width: 100%;
+}
+
+.plain-list {
+  padding-left: 1.25rem;
+}
+
 /* ---- Tabs ------------------------------------------------------------ */
 
 /*
@@ -613,8 +638,42 @@ a:focus-visible {
   background: var(--brand-light);
 }
 
+.meeting-list:not(.compact) a {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7rem 7.5rem;
+}
+
+.meeting-list .meeting-date {
+  min-width: 0;
+}
+
+.meeting-list .meeting-session {
+  justify-self: center;
+}
+
+.meeting-list .meeting-status {
+  justify-self: end;
+}
+
+.featured-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .meeting-list.compact {
   border: none;
+}
+
+.meeting-session-select {
+  min-width: 9rem;
+  max-width: 15rem;
+}
+
+.meeting-session-label {
+  margin-top: -0.5rem;
+  color: var(--brand);
+  font-weight: 600;
 }
 
 .meeting-list.compact li {
@@ -973,6 +1032,10 @@ a:focus-visible {
   .site-nav a {
     padding: 0.4rem 0.5rem;
     font-size: 0.9rem;
+  }
+
+  .meeting-list:not(.compact) a {
+    grid-template-columns: minmax(0, 1fr) 5.5rem 6.5rem;
   }
 
   .input-row {

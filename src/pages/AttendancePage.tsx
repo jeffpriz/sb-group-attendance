@@ -36,8 +36,11 @@ export default function AttendancePage() {
 }
 
 function AttendanceChecklist({ date, previous, next }: { date: string; previous?: string; next?: string }) {
-  const { group, setGroup } = useGroup()
+  const { group, setGroup, tracks } = useGroup()
   const meeting = group.meetings.find((m) => m.date === date)!
+  const session = tracks
+    ?.find((track) => track.id === group.trackId)
+    ?.sessions.find((item) => item.id === meeting.sessionId)
   const roster = useMemo(() => editableRoster(group, meeting), [group, meeting])
   const savedIds = meeting.attendance?.presentMemberIds
   const [present, setPresent] = useState<Set<string>>(() => new Set(savedIds ?? []))
@@ -108,6 +111,7 @@ function AttendanceChecklist({ date, previous, next }: { date: string; previous?
       </div>
 
       <h2 className="meeting-title">{formatDate(date, 'long')}</h2>
+      {session && <p className="meeting-session-label">{session.name}</p>}
       <p className="muted">
         {meeting.attendance
           ? `Attendance saved ${new Date(meeting.attendance.recordedAt).toLocaleString('en-US', {

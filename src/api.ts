@@ -5,6 +5,9 @@ import type {
   SeasonDetail,
   SeasonSummary,
   StatsResponse,
+  Track,
+  TrackDetail,
+  TrackSummary,
 } from '../shared/types.ts'
 
 export class ApiRequestError extends Error {
@@ -66,12 +69,24 @@ export const api = {
     request<Group>('PATCH', `/groups/${enc(id)}`, { archived }),
   setGroupSeason: (id: string, seasonId: string | null) =>
     request<Group>('PATCH', `/groups/${enc(id)}`, { seasonId }),
+  setGroupTrack: (id: string, trackId: string | null) =>
+    request<Group>('PATCH', `/groups/${enc(id)}`, { trackId }),
   deleteGroup: (id: string) => request<void>('DELETE', `/groups/${enc(id)}`),
 
   listSeasons: () => request<SeasonSummary[]>('GET', '/seasons'),
   getSeason: (id: string) => request<SeasonDetail>('GET', `/seasons/${enc(id)}`),
   createSeason: (name: string) => request<Season>('POST', '/seasons', { name }),
   renameSeason: (id: string, name: string) => request<Season>('PATCH', `/seasons/${enc(id)}`, { name }),
+
+  listTracks: () => request<TrackSummary[]>('GET', '/tracks'),
+  getTrack: (id: string) => request<TrackDetail>('GET', `/tracks/${enc(id)}`),
+  createTrack: (name: string, sessions: string[]) =>
+    request<Track>('POST', '/tracks', { name, sessions }),
+  renameTrack: (id: string, name: string) => request<Track>('PATCH', `/tracks/${enc(id)}`, { name }),
+  addTrackSession: (trackId: string, name: string) =>
+    request<Track>('POST', `/tracks/${enc(trackId)}/sessions`, { name }),
+  renameTrackSession: (trackId: string, sessionId: string, name: string) =>
+    request<Track>('PATCH', `/tracks/${enc(trackId)}/sessions/${enc(sessionId)}`, { name }),
 
   addMember: (groupId: string, name: string) =>
     request<Group>('POST', `/groups/${enc(groupId)}/members`, { name }),
@@ -96,6 +111,10 @@ export const api = {
 
   setMeetings: (groupId: string, dates: string[], force = false) =>
     request<Group>('PUT', `/groups/${enc(groupId)}/meetings`, { dates, force }),
+  setMeetingSession: (groupId: string, date: string, sessionId: string | null) =>
+    request<Group>('PATCH', `/groups/${enc(groupId)}/meetings/${enc(date)}/session`, {
+      sessionId,
+    }),
 
   saveAttendance: (groupId: string, date: string, presentMemberIds: string[]) =>
     request<Group>('PUT', `/groups/${enc(groupId)}/meetings/${enc(date)}/attendance`, {

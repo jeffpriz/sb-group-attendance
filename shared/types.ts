@@ -33,6 +33,8 @@ export interface AttendanceRecord {
 /** A scheduled meeting, identified by its calendar date (YYYY-MM-DD). */
 export interface Meeting {
   date: string
+  /** Session from the group's assigned track, when one has been selected. */
+  sessionId?: string
   /** Missing until attendance has been taken for this meeting. */
   attendance?: AttendanceRecord
 }
@@ -45,6 +47,20 @@ export interface Season {
   updatedAt: string
 }
 
+export interface TrackSession {
+  id: string
+  name: string
+}
+
+/** Course material that groups can work through in an ordered set of sessions. */
+export interface Track {
+  id: string
+  name: string
+  sessions: TrackSession[]
+  createdAt: string
+  updatedAt: string
+}
+
 /** A small group, stored as one JSON file per group. */
 export interface Group {
   id: string
@@ -53,6 +69,8 @@ export interface Group {
   updatedAt: string
   /** The group's current season. Omitted when the group is not assigned. */
   seasonId?: string
+  /** The group's current course track. Omitted when the group is not assigned. */
+  trackId?: string
   /** Set while the group is hidden from the active groups list. */
   archivedAt?: string
   members: Member[]
@@ -65,6 +83,7 @@ export interface GroupSummary {
   id: string
   name: string
   seasonId?: string
+  trackId?: string
   archived: boolean
   memberCount: number
   meetingDates: string[]
@@ -77,6 +96,15 @@ export interface SeasonDetail {
 }
 
 export interface SeasonSummary extends Season {
+  groups: GroupSummary[]
+}
+
+export interface TrackDetail {
+  track: Track
+  groups: Group[]
+}
+
+export interface TrackSummary extends Track {
   groups: GroupSummary[]
 }
 

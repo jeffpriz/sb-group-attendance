@@ -1,5 +1,5 @@
 import { useOutletContext } from 'react-router'
-import type { Group, SeasonSummary } from '../shared/types.ts'
+import type { Group, SeasonSummary, TrackSummary } from '../shared/types.ts'
 
 export interface GroupContext {
   group: Group
@@ -9,6 +9,10 @@ export interface GroupContext {
   seasonsLoading: boolean
   seasonsError?: string
   retrySeasons: () => void
+  tracks?: TrackSummary[]
+  tracksLoading: boolean
+  tracksError?: string
+  retryTracks: () => void
 }
 
 export function useGroup(): GroupContext {

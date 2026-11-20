@@ -11,6 +11,7 @@ function toSummary(group: Group): GroupSummary {
     id: group.id,
     name: group.name,
     ...(group.seasonId ? { seasonId: group.seasonId } : {}),
+    ...(group.trackId ? { trackId: group.trackId } : {}),
     archived: Boolean(group.archivedAt),
     memberCount: group.members.filter((member) => !member.removedAt).length,
     meetingDates: group.meetings.map((meeting) => meeting.date),
