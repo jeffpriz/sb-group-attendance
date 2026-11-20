@@ -1,5 +1,5 @@
 import { weekStart, weekStartsBetween } from './weeks.ts'
-import type { Group, Meeting, Member } from './types.ts'
+import type { Group, Meeting, MembershipInterval, Member } from './types.ts'
 
 /*
  * How attendance statistics are calculated
@@ -7,21 +7,37 @@ import type { Group, Meeting, Member } from './types.ts'
  * Only meetings where attendance was taken (saved) count toward rates.
  *
  * For each of those meetings, the "expected" members are:
- *   - everyone who was in the group on the meeting day, or when the
- *     attendance was saved (so attendance entered later for a past meeting
- *     still counts members added just before entering it), plus
+ *   - everyone who was in the group on the meeting day, or who joined after
+ *     the meeting and was in the group when the attendance was saved (so
+ *     attendance entered later for a past meeting still counts members added
+ *     just before entering it), plus
  *   - anyone marked present (even if since removed).
  * Members added after both the meeting and its attendance don't count
- * against that meeting, and removed members still count for meetings from
- * while they were in the group.
+ * against that meeting. Removed members still count for meetings from
+ * while they were in the group, but not for meetings on or after a
+ * (possibly backdated) removal date, even if attendance was saved earlier.
  *
  * Attendance % = total present marks / total expected, over all included
  * meetings (a weighted rate, so bigger meetings count more than small ones).
  */
 
-/** True when the member belonged to the group at the ISO timestamp `at`. */
-function inGroupAt(member: Member, at: string): boolean {
-  return member.addedAt <= at && (!member.removedAt || member.removedAt > at)
+/** The member's membership periods (legacy members get one derived from addedAt/removedAt). */
+function intervalsOf(member: Member): MembershipInterval[] {
+  if (member.membershipIntervals?.length) return member.membershipIntervals
+  return [{ startDate: member.addedAt.slice(0, 10), endDate: member.removedAt?.slice(0, 10) }]
+}
+
+const covers = (interval: MembershipInterval, date: string) =>
+  interval.startDate <= date && (!interval.endDate || date < interval.endDate)
+
+/** True when the member belonged to the group on the calendar date `date`. */
+function inGroupOn(member: Member, date: string): boolean {
+  return intervalsOf(member).some((interval) => covers(interval, date))
+}
+
+/** True when the member joined after `meetingDate` and was in the group on `savedDate`. */
+function joinedLaterBeforeSave(member: Member, meetingDate: string, savedDate: string): boolean {
+  return intervalsOf(member).some((interval) => interval.startDate > meetingDate && covers(interval, savedDate))
 }
 
 /**
@@ -35,9 +51,9 @@ export function expectedMembers(
   savedAt = meeting.attendance?.recordedAt ?? new Date().toISOString(),
 ): Member[] {
   const present = new Set(meeting.attendance?.presentMemberIds ?? [])
-  const endOfMeetingDay = `${meeting.date}T23:59:59.999Z`
+  const savedDate = savedAt.slice(0, 10)
   return group.members.filter(
-    (m) => present.has(m.id) || inGroupAt(m, savedAt) || inGroupAt(m, endOfMeetingDay),
+    (m) => present.has(m.id) || inGroupOn(m, meeting.date) || joinedLaterBeforeSave(m, meeting.date, savedDate),
   )
 }
 

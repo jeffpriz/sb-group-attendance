@@ -58,10 +58,22 @@ export const api = {
     request<Group>('POST', `/groups/${enc(groupId)}/members`, { name }),
   renameMember: (groupId: string, memberId: string, name: string) =>
     request<Group>('PATCH', `/groups/${enc(groupId)}/members/${enc(memberId)}`, { name }),
-  restoreMember: (groupId: string, memberId: string) =>
-    request<Group>('PATCH', `/groups/${enc(groupId)}/members/${enc(memberId)}`, { restore: true }),
-  removeMember: (groupId: string, memberId: string) =>
-    request<Group>('DELETE', `/groups/${enc(groupId)}/members/${enc(memberId)}`),
+  setRemovalDate: (groupId: string, memberId: string, removalDate: string) =>
+    request<Group>('PATCH', `/groups/${enc(groupId)}/members/${enc(memberId)}`, { removalDate }),
+  restoreMember: (
+    groupId: string,
+    memberId: string,
+    restoreDate?: string,
+    retroactiveMeetingDate?: string,
+  ) =>
+    request<Group>('PATCH', `/groups/${enc(groupId)}/members/${enc(memberId)}`, {
+      restore: true,
+      restoreDate,
+      retroactiveMeetingDate,
+      present: retroactiveMeetingDate ? true : undefined,
+    }),
+  removeMember: (groupId: string, memberId: string, removalDate?: string) =>
+    request<Group>('DELETE', `/groups/${enc(groupId)}/members/${enc(memberId)}`, { removalDate }),
 
   setMeetings: (groupId: string, dates: string[], force = false) =>
     request<Group>('PUT', `/groups/${enc(groupId)}/meetings`, { dates, force }),
