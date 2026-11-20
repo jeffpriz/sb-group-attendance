@@ -430,6 +430,139 @@ describe('Seasons API', () => {
   })
 })
 
+describe('Tracks API', () => {
+  it('creates and edits a track and its sessions', async () => {
+    await request(app).get('/api/tracks').expect(200, [])
+    const created = (
+      await request(app)
+        .post('/api/tracks')
+        .send({ name: '  Thinking   Track ', sessions: ['Session 1', ' Session 2 '] })
+        .expect(201)
+    ).body
+    expect(created).toMatchObject({
+      name: 'Thinking Track',
+      sessions: [
+        { name: 'Session 1', id: expect.any(String) },
+        { name: 'Session 2', id: expect.any(String) },
+      ],
+    })
+
+    const renamed = (
+      await request(app).patch(`/api/tracks/${created.id}`).send({ name: 'Foundations' }).expect(200)
+    ).body
+    const added = (
+      await request(app)
+        .post(`/api/tracks/${created.id}/sessions`)
+        .send({ name: 'Session 3' })
+        .expect(201)
+    ).body
+    expect(renamed.name).toBe('Foundations')
+    expect(added.sessions.map((session: { name: string }) => session.name)).toEqual([
+      'Session 1',
+      'Session 2',
+      'Session 3',
+    ])
+
+    const sessionId = added.sessions[0].id
+    const sessionRenamed = (
+      await request(app)
+        .patch(`/api/tracks/${created.id}/sessions/${sessionId}`)
+        .send({ name: 'Introduction' })
+        .expect(200)
+    ).body
+    expect(sessionRenamed.sessions[0].name).toBe('Introduction')
+    expect((await request(app).get(`/api/tracks/${created.id}`).expect(200)).body.track).toEqual(
+      sessionRenamed,
+    )
+  })
+
+  it('validates track and session input', async () => {
+    await request(app).post('/api/tracks').send({}).expect(400)
+    await request(app).post('/api/tracks').send({ name: 'Track', sessions: 'Session 1' }).expect(400)
+    await request(app).post('/api/tracks').send({ name: 'Track', sessions: [' '] }).expect(400)
+    await request(app).get('/api/tracks/missing').expect(404)
+    await request(app).patch('/api/tracks/missing').send({ name: 'Track' }).expect(404)
+    const track = (await request(app).post('/api/tracks').send({ name: 'Track' }).expect(201)).body
+    await request(app).post(`/api/tracks/${track.id}/sessions`).send({}).expect(400)
+    await request(app)
+      .patch(`/api/tracks/${track.id}/sessions/missing`)
+      .send({ name: 'Session' })
+      .expect(404)
+  })
+
+  it('assigns groups to tracks and lists assignments', async () => {
+    const track = (
+      await request(app).post('/api/tracks').send({ name: 'Thinking', sessions: ['Session 1'] }).expect(201)
+    ).body
+    const group = (
+      await request(app).post('/api/groups').send({ name: 'Group 1', trackId: track.id }).expect(201)
+    ).body
+    expect(group.trackId).toBe(track.id)
+    expect((await request(app).get('/api/groups').expect(200)).body[0].trackId).toBe(track.id)
+    expect((await request(app).get('/api/tracks').expect(200)).body[0].groups[0].id).toBe(group.id)
+    expect((await request(app).get(`/api/tracks/${track.id}`).expect(200)).body.groups[0].id).toBe(group.id)
+
+    const cleared = await request(app)
+      .patch(`/api/groups/${group.id}`)
+      .send({ trackId: null })
+      .expect(200)
+    expect(cleared.body).not.toHaveProperty('trackId')
+    expect((await request(app).get(`/api/tracks/${track.id}`).expect(200)).body.groups).toEqual([])
+  })
+
+  it('only assigns sessions from the group track and preserves them when dates change', async () => {
+    const thinking = (
+      await request(app).post('/api/tracks').send({ name: 'Thinking', sessions: ['Session 1'] }).expect(201)
+    ).body
+    const other = (
+      await request(app).post('/api/tracks').send({ name: 'Other', sessions: ['Other Session'] }).expect(201)
+    ).body
+    const group = (
+      await request(app).post('/api/groups').send({ name: 'Group 1', trackId: thinking.id }).expect(201)
+    ).body
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings`)
+      .send({ dates: ['2026-10-07'] })
+      .expect(200)
+
+    const assigned = await request(app)
+      .patch(`/api/groups/${group.id}/meetings/2026-10-07/session`)
+      .send({ sessionId: thinking.sessions[0].id })
+      .expect(200)
+    expect(assigned.body.meetings[0].sessionId).toBe(thinking.sessions[0].id)
+    await request(app)
+      .patch(`/api/groups/${group.id}/meetings/2026-10-07/session`)
+      .send({ sessionId: other.sessions[0].id })
+      .expect(400)
+
+    const extended = await request(app)
+      .put(`/api/groups/${group.id}/meetings`)
+      .send({ dates: ['2026-10-07', '2026-10-14'] })
+      .expect(200)
+    expect(extended.body.meetings[0].sessionId).toBe(thinking.sessions[0].id)
+
+    const changed = await request(app)
+      .patch(`/api/groups/${group.id}`)
+      .send({ trackId: other.id })
+      .expect(200)
+    expect(changed.body.meetings[0]).not.toHaveProperty('sessionId')
+  })
+
+  it('requires a group track for session assignment and rejects unknown tracks', async () => {
+    const group = (await request(app).post('/api/groups').send({ name: 'Unassigned' }).expect(201)).body
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings`)
+      .send({ dates: ['2026-10-07'] })
+      .expect(200)
+    await request(app)
+      .patch(`/api/groups/${group.id}/meetings/2026-10-07/session`)
+      .send({ sessionId: 'session' })
+      .expect(400)
+    await request(app).patch(`/api/groups/${group.id}`).send({ trackId: 'missing' }).expect(400)
+    await request(app).post('/api/groups').send({ name: 'Bad', trackId: 'missing' }).expect(400)
+  })
+})
+
 describe('GET /api/stats', () => {
   it('returns totals, weekly and per-group stats, honouring filters', async () => {
     const group = await createGroupWithMembers(['Ann', 'Ben', 'Cal', 'Dee'])

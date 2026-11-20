@@ -38,6 +38,14 @@ describe('GroupStore', () => {
     expect(await store.getSeason(winter.id)).toEqual(winter)
   })
 
+  it('saves tracks with durable session IDs', async () => {
+    const track = await store.createTrack('Thinking', ['Session 1', 'Session 2'])
+    expect(JSON.parse(await readFile(path.join(dataDir, 'tracks', `${track.id}.json`), 'utf8'))).toEqual(track)
+    expect(track.sessions.map((session) => session.name)).toEqual(['Session 1', 'Session 2'])
+    expect(new Set(track.sessions.map((session) => session.id)).size).toBe(2)
+    expect((await store.listTracks())[0]).toEqual(track)
+  })
+
   it('updates seasons atomically while preserving their identity', async () => {
     const season = await store.createSeason('Original')
     await Promise.all(
@@ -107,6 +115,7 @@ describe('GroupStore.init', () => {
     await fresh.init()
     expect((await stat(path.join(nested, 'groups'))).isDirectory()).toBe(true)
     expect((await stat(path.join(nested, 'seasons'))).isDirectory()).toBe(true)
+    expect((await stat(path.join(nested, 'tracks'))).isDirectory()).toBe(true)
     expect(await fresh.isWritable()).toBe(true)
     // The write test leaves nothing behind.
     expect(await readdir(path.join(nested, 'groups'))).toEqual([])

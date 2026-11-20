@@ -10,10 +10,15 @@ import { activeMembers, byName, errorMessage, plural } from '../util.ts'
 function GroupSettingsSection({
   groupName,
   groupSeasonId,
+  groupTrackId,
   seasons,
   seasonsLoading,
   seasonsError,
   retrySeasons,
+  tracks,
+  tracksLoading,
+  tracksError,
+  retryTracks,
   busy,
   onSave,
   onClose,
@@ -21,23 +26,31 @@ function GroupSettingsSection({
 }: {
   groupName: string
   groupSeasonId: string | undefined
+  groupTrackId: string | undefined
   seasons: ReturnType<typeof useGroup>['seasons']
   seasonsLoading: boolean
   seasonsError: string | undefined
   retrySeasons: () => void
+  tracks: ReturnType<typeof useGroup>['tracks']
+  tracksLoading: boolean
+  tracksError: string | undefined
+  retryTracks: () => void
   busy: boolean
-  onSave: (name: string, seasonId: string | null) => Promise<void>
+  onSave: (name: string, seasonId: string | null, trackId: string | null) => Promise<void>
   onClose: () => void
   onDelete: () => void
 }) {
   const [name, setName] = useState(groupName)
   const [seasonSelection, setSeasonSelection] = useState(groupSeasonId ?? '')
+  const [trackSelection, setTrackSelection] = useState(groupTrackId ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
   const trimmedName = name.trim()
   const invalid = !trimmedName || trimmedName.length > 100
   const unchanged =
-    trimmedName === groupName && seasonSelection === (groupSeasonId ?? '')
+    trimmedName === groupName &&
+    seasonSelection === (groupSeasonId ?? '') &&
+    trackSelection === (groupTrackId ?? '')
   const controlsDisabled = busy || saving
 
   function save(event: FormEvent) {
@@ -50,7 +63,7 @@ function GroupSettingsSection({
     setSaving(true)
     setError(undefined)
     try {
-      await onSave(trimmedName, seasonSelection || null)
+      await onSave(trimmedName, seasonSelection || null, trackSelection || null)
       onClose()
     } catch (err) {
       setError(errorMessage(err))
@@ -120,6 +133,42 @@ function GroupSettingsSection({
             </button>
           </p>
         )}
+        <label className="field">
+          <span>Track</span>
+          <div className="input-row">
+            <select
+              value={trackSelection}
+              onChange={(event) => setTrackSelection(event.target.value)}
+              disabled={controlsDisabled || tracksLoading || (!tracks && Boolean(tracksError))}
+            >
+              <option value="">No track</option>
+              {groupTrackId && !tracks?.some((track) => track.id === groupTrackId) && (
+                <option value={groupTrackId}>
+                  {tracks ? 'Current track unavailable' : 'Current track (details unavailable)'}
+                </option>
+              )}
+              {tracks?.map((track) => (
+                <option key={track.id} value={track.id}>
+                  {track.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </label>
+        {tracksLoading && <p className="muted small">Loading tracks…</p>}
+        {tracksError && (
+          <p className="notice notice-error">
+            <span>{tracksError}</span>
+            <button type="button" className="link-button" onClick={retryTracks}>
+              Retry
+            </button>
+          </p>
+        )}
+        {trackSelection && trackSelection !== (groupTrackId ?? '') && (
+          <p className="muted small">
+            Changing tracks clears the session assigned to existing meetings.
+          </p>
+        )}
         <div className="group-settings-actions">
           <div className="group-settings-primary-actions">
             <button
@@ -148,7 +197,18 @@ function GroupSettingsSection({
 }
 
 export default function MembersPage() {
-  const { group, setGroup, seasons, seasonsLoading, seasonsError, retrySeasons } = useGroup()
+  const {
+    group,
+    setGroup,
+    seasons,
+    seasonsLoading,
+    seasonsError,
+    retrySeasons,
+    tracks,
+    tracksLoading,
+    tracksError,
+    retryTracks,
+  } = useGroup()
   const location = useLocation()
   const navigate = useNavigate()
   const justCreated = (location.state as { justCreated?: boolean } | null)?.justCreated
@@ -272,7 +332,7 @@ export default function MembersPage() {
     )
   }
 
-  async function saveSettings(name: string, seasonId: string | null) {
+  async function saveSettings(name: string, seasonId: string | null, trackId: string | null) {
     let updated = group
     if (name !== group.name) {
       updated = await api.renameGroup(group.id, name)
@@ -280,6 +340,10 @@ export default function MembersPage() {
     }
     if (seasonId !== (updated.seasonId ?? null)) {
       updated = await api.setGroupSeason(group.id, seasonId)
+      setGroup(updated)
+    }
+    if (trackId !== (updated.trackId ?? null)) {
+      updated = await api.setGroupTrack(group.id, trackId)
       setGroup(updated)
     }
     setMessage('Group settings saved.')
@@ -318,10 +382,15 @@ export default function MembersPage() {
         <GroupSettingsSection
           groupName={group.name}
           groupSeasonId={group.seasonId}
+          groupTrackId={group.trackId}
           seasons={seasons}
           seasonsLoading={seasonsLoading}
           seasonsError={seasonsError}
           retrySeasons={retrySeasons}
+          tracks={tracks}
+          tracksLoading={tracksLoading}
+          tracksError={tracksError}
+          retryTracks={retryTracks}
           busy={busy}
           onSave={saveSettings}
           onClose={closeSettings}

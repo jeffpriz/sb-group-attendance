@@ -20,7 +20,7 @@ import { errorMessage, plural } from '../util.ts'
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 export default function SchedulePage() {
-  const { group, setGroup } = useGroup()
+  const { group, setGroup, tracks, tracksLoading } = useGroup()
   const wide = useMediaQuery('(min-width: 760px)')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
@@ -33,6 +33,21 @@ export default function SchedulePage() {
   const dates = group.meetings.map((m) => m.date)
   const recorded = new Set(group.meetings.filter((m) => m.attendance).map((m) => m.date))
   const today = todayIso()
+  const track = tracks?.find((item) => item.id === group.trackId)
+  const [savingSessionDate, setSavingSessionDate] = useState<string>()
+
+  async function saveSession(date: string, sessionId: string | null) {
+    setSavingSessionDate(date)
+    setError(undefined)
+    try {
+      setGroup(await api.setMeetingSession(group.id, date, sessionId))
+      setMessage('Meeting session saved.')
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSavingSessionDate(undefined)
+    }
+  }
 
   /** Saves a new schedule, asking first if recorded attendance would be lost. */
   function saveSchedule(next: string[], successMessage?: string) {
@@ -133,6 +148,29 @@ export default function SchedulePage() {
             {group.meetings.map((meeting) => (
               <li key={meeting.date} className={meeting.date < today ? 'past' : ''}>
                 <Link to={`../meetings/${meeting.date}`}>{formatDate(meeting.date)}</Link>
+                {track && (
+                  <select
+                    className="meeting-session-select"
+                    aria-label={`Session for ${formatDate(meeting.date)}`}
+                    value={meeting.sessionId ?? ''}
+                    onChange={(event) =>
+                      void saveSession(meeting.date, event.target.value || null)
+                    }
+                    disabled={saving || savingSessionDate === meeting.date}
+                  >
+                    <option value="">No session</option>
+                    {track.sessions.map((session) => (
+                      <option key={session.id} value={session.id}>
+                        {session.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {!group.trackId && (
+                  <span className="muted small">
+                    {tracksLoading ? 'Loading track…' : 'Assign a track to choose a session'}
+                  </span>
+                )}
                 {meeting.attendance && <span className="badge badge-ok">Attendance taken</span>}
                 <button
                   type="button"

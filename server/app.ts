@@ -4,7 +4,15 @@ import path from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { isValidIsoDate, todayIso, uniqueSortedDates } from '../shared/dates.ts'
 import { computeStats } from '../shared/stats.ts'
-import type { Group, GroupSummary, SeasonDetail, SeasonSummary, StatsResponse } from '../shared/types.ts'
+import type {
+  Group,
+  GroupSummary,
+  SeasonDetail,
+  SeasonSummary,
+  StatsResponse,
+  TrackDetail,
+  TrackSummary,
+} from '../shared/types.ts'
 import { GroupStore, HttpError } from './storage.ts'
 
 export interface AppOptions {
@@ -45,11 +53,20 @@ function toSummary(group: Group): GroupSummary {
     id: group.id,
     name: group.name,
     ...(group.seasonId !== undefined ? { seasonId: group.seasonId } : {}),
+    ...(group.trackId !== undefined ? { trackId: group.trackId } : {}),
     archived: Boolean(group.archivedAt),
     memberCount: group.members.filter((m) => !m.removedAt).length,
     meetingDates: group.meetings.map((m) => m.date),
     recordedMeetingCount: group.meetings.filter((m) => m.attendance).length,
   }
+}
+
+async function optionalTrackId(store: GroupStore, value: unknown, required = false): Promise<string | undefined> {
+  if (!required && value === undefined) return undefined
+  if (value === null) return undefined
+  if (typeof value !== 'string' || !value) throw new HttpError(400, 'trackId must be a string or null')
+  if (!(await store.getTrack(value))) throw new HttpError(400, 'Track not found')
+  return value
 }
 
 async function optionalSeasonId(store: GroupStore, value: unknown, required = false): Promise<string | undefined> {
@@ -85,7 +102,8 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
   api.post('/groups', async (req, res) => {
     const name = requireName(req.body?.name, 'Group name')
     const seasonId = await optionalSeasonId(store, req.body?.seasonId)
-    const group = await store.create(name, seasonId)
+    const trackId = await optionalTrackId(store, req.body?.trackId)
+    const group = await store.create(name, seasonId, trackId)
     res.status(201).json(group)
   })
 
@@ -99,19 +117,26 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
     const hasName = req.body?.name !== undefined
     const hasArchived = req.body?.archived !== undefined
     const hasSeason = req.body?.seasonId !== undefined
-    if (!hasName && !hasArchived && !hasSeason) {
-      throw new HttpError(400, 'Provide a group name, archived status or seasonId')
+    const hasTrack = req.body?.trackId !== undefined
+    if (!hasName && !hasArchived && !hasSeason && !hasTrack) {
+      throw new HttpError(400, 'Provide a group name, archived status, seasonId or trackId')
     }
     const name = hasName ? requireName(req.body.name, 'Group name') : undefined
     if (hasArchived && typeof req.body.archived !== 'boolean') {
       throw new HttpError(400, 'Archived status must be true or false')
     }
     const seasonId = hasSeason ? await optionalSeasonId(store, req.body.seasonId, true) : undefined
+    const trackId = hasTrack ? await optionalTrackId(store, req.body.trackId, true) : undefined
     const group = await store.update(req.params.groupId, (g) => {
       if (name !== undefined) g.name = name
       if (hasSeason) {
         if (seasonId === undefined) delete g.seasonId
         else g.seasonId = seasonId
+      }
+      if (hasTrack && trackId !== g.trackId) {
+        if (trackId === undefined) delete g.trackId
+        else g.trackId = trackId
+        for (const meeting of g.meetings) delete meeting.sessionId
       }
       if (hasArchived) {
         if (req.body.archived) g.archivedAt = g.archivedAt ?? new Date().toISOString()
@@ -152,6 +177,63 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
     const groups = (await store.list()).filter((group) => group.seasonId === season.id)
     const body: SeasonDetail = { season, groups }
     res.json(body)
+  })
+
+  // ---- Tracks -------------------------------------------------------------
+
+  api.get('/tracks', async (_req, res) => {
+    const [tracks, groups] = await Promise.all([store.listTracks(), store.list()])
+    const body: TrackSummary[] = tracks.map((track) => ({
+      ...track,
+      groups: groups.filter((group) => group.trackId === track.id).map(toSummary),
+    }))
+    res.json(body)
+  })
+
+  api.post('/tracks', async (req, res) => {
+    const name = requireName(req.body?.name, 'Track name')
+    const rawSessions = req.body?.sessions ?? []
+    if (!Array.isArray(rawSessions) || rawSessions.length > 200) {
+      throw new HttpError(400, 'Sessions must be a list of at most 200 names')
+    }
+    const sessions = rawSessions.map((session) => requireName(session, 'Session name'))
+    res.status(201).json(await store.createTrack(name, sessions))
+  })
+
+  api.patch('/tracks/:trackId', async (req, res) => {
+    const name = requireName(req.body?.name, 'Track name')
+    res.json(await store.updateTrack(req.params.trackId, (track) => {
+      track.name = name
+    }))
+  })
+
+  api.get('/tracks/:trackId', async (req, res) => {
+    const track = await store.getTrack(req.params.trackId)
+    if (!track) throw new HttpError(404, 'Track not found')
+    const groups = (await store.list()).filter((group) => group.trackId === track.id)
+    const body: TrackDetail = { track, groups }
+    res.json(body)
+  })
+
+  api.post('/tracks/:trackId/sessions', async (req, res) => {
+    const name = requireName(req.body?.name, 'Session name')
+    res.status(201).json(
+      await store.updateTrack(req.params.trackId, (track) => {
+        if (track.sessions.length >= 200) throw new HttpError(400, 'A track can have at most 200 sessions')
+        track.sessions.push({ id: randomUUID(), name })
+      }),
+    )
+  })
+
+  api.patch('/tracks/:trackId/sessions/:sessionId', async (req, res) => {
+    const name = requireName(req.body?.name, 'Session name')
+    res.json(
+      await store.updateTrack(req.params.trackId, (track) => {
+        const session = track.sessions.find((candidate) => candidate.id === req.params.sessionId)
+        if (!session) throw new HttpError(404, 'Session not found')
+        session.name = name
+      }),
+    )
   })
 
   api.delete('/groups/:groupId', async (req, res) => {
@@ -290,6 +372,29 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
       }
       const existing = new Map(g.meetings.map((m) => [m.date, m]))
       g.meetings = dates.map((date) => existing.get(date) ?? { date })
+    })
+    res.json(group)
+  })
+
+  api.patch('/groups/:groupId/meetings/:date/session', async (req, res) => {
+    const date = requireDate(req.params.date)
+    const sessionIdValue: unknown = req.body?.sessionId
+    if (sessionIdValue !== null && typeof sessionIdValue !== 'string') {
+      throw new HttpError(400, 'sessionId must be a string or null')
+    }
+    const sessionId = sessionIdValue as string | null
+    const group = await store.update(req.params.groupId, async (g) => {
+      const meeting = findMeeting(g, date)
+      if (sessionId === null) {
+        delete meeting.sessionId
+        return
+      }
+      if (!g.trackId) throw new HttpError(400, 'Assign a track to the group before assigning a session')
+      const track = await store.getTrack(g.trackId)
+      if (!track || !track.sessions.some((session) => session.id === sessionId)) {
+        throw new HttpError(400, 'Session does not belong to the group track')
+      }
+      meeting.sessionId = sessionId
     })
     res.json(group)
   })

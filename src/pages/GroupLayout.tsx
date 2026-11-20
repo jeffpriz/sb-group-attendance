@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useParams } from 'react-router'
-import type { Group, SeasonSummary } from '../../shared/types.ts'
+import type { Group, SeasonSummary, TrackSummary } from '../../shared/types.ts'
 import { api, ApiRequestError } from '../api.ts'
 import Notice from '../components/Notice.tsx'
 import type { GroupContext } from '../groupContext.ts'
@@ -15,10 +15,13 @@ export default function GroupLayout() {
 function GroupLoader({ groupId }: { groupId: string }) {
   const [group, setGroup] = useState<Group>()
   const [seasons, setSeasons] = useState<SeasonSummary[]>()
+  const [tracks, setTracks] = useState<TrackSummary[]>()
   const [groupLoading, setGroupLoading] = useState(true)
   const [seasonsLoading, setSeasonsLoading] = useState(true)
+  const [tracksLoading, setTracksLoading] = useState(true)
   const [error, setError] = useState<{ message: string; notFound: boolean }>()
   const [seasonsError, setSeasonsError] = useState<string>()
+  const [tracksError, setTracksError] = useState<string>()
   const { pathname } = useLocation()
   const onMeetingPage = /\/meetings\//.test(pathname)
   const updateGroup = useCallback((updated: Group) => {
@@ -31,6 +34,7 @@ function GroupLoader({ groupId }: { groupId: string }) {
             id: updated.id,
             name: updated.name,
             ...(updated.seasonId ? { seasonId: updated.seasonId } : {}),
+            ...(updated.trackId ? { trackId: updated.trackId } : {}),
             archived: Boolean(updated.archivedAt),
             memberCount: updated.members.filter((member) => !member.removedAt).length,
             meetingDates: updated.meetings.map((meeting) => meeting.date),
@@ -39,6 +43,25 @@ function GroupLoader({ groupId }: { groupId: string }) {
           groups.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
         }
         return { ...season, groups }
+      }),
+    )
+    setTracks((current) =>
+      current?.map((track) => {
+        const groups = track.groups.filter((item) => item.id !== updated.id)
+        if (track.id === updated.trackId) {
+          groups.push({
+            id: updated.id,
+            name: updated.name,
+            ...(updated.seasonId ? { seasonId: updated.seasonId } : {}),
+            ...(updated.trackId ? { trackId: updated.trackId } : {}),
+            archived: Boolean(updated.archivedAt),
+            memberCount: updated.members.filter((member) => !member.removedAt).length,
+            meetingDates: updated.meetings.map((meeting) => meeting.date),
+            recordedMeetingCount: updated.meetings.filter((meeting) => meeting.attendance).length,
+          })
+          groups.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        }
+        return { ...track, groups }
       }),
     )
   }, [])
@@ -88,8 +111,29 @@ function GroupLoader({ groupId }: { groupId: string }) {
     }
   }, [])
 
+  const loadTracks = useCallback(() => {
+    let cancelled = false
+    api.listTracks().then(
+      (items) => {
+        if (!cancelled) {
+          setTracks(items)
+          setTracksError(undefined)
+        }
+      },
+      (err) => {
+        if (!cancelled) setTracksError(errorMessage(err))
+      },
+    ).finally(() => {
+      if (!cancelled) setTracksLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   useEffect(() => loadGroup(), [loadGroup])
   useEffect(() => loadSeasons(), [loadSeasons])
+  useEffect(() => loadTracks(), [loadTracks])
 
   useEffect(() => {
     if (group) document.title = `${group.name} · Group Attendance`
@@ -103,6 +147,11 @@ function GroupLoader({ groupId }: { groupId: string }) {
   function retrySeasons() {
     setSeasonsLoading(true)
     loadSeasons()
+  }
+
+  function retryTracks() {
+    setTracksLoading(true)
+    loadTracks()
   }
 
   if (!group && groupLoading) return <p className="muted">Loading group…</p>
@@ -128,8 +177,13 @@ function GroupLoader({ groupId }: { groupId: string }) {
     seasonsLoading,
     seasonsError,
     retrySeasons,
+    tracks,
+    tracksLoading,
+    tracksError,
+    retryTracks,
   }
   const season = seasons?.find((item) => item.id === group.seasonId)
+  const track = tracks?.find((item) => item.id === group.trackId)
 
   return (
     <>
@@ -151,6 +205,15 @@ function GroupLoader({ groupId }: { groupId: string }) {
           <span className="muted">No season assigned</span>
         )}
       </p>
+      <p className="group-season-summary">
+        {group.trackId ? (
+          <Link to={`/tracks/${group.trackId}`}>
+            Track: {track?.name ?? 'View track'}
+          </Link>
+        ) : (
+          <span className="muted">No track assigned</span>
+        )}
+      </p>
       {seasonsError && (
         <Notice kind="error">
           <span>{seasonsError} Season details may be unavailable.</span>{' '}
@@ -159,6 +222,19 @@ function GroupLoader({ groupId }: { groupId: string }) {
             className="link-button"
             onClick={retrySeasons}
             disabled={seasonsLoading}
+          >
+            Retry
+          </button>
+        </Notice>
+      )}
+      {tracksError && (
+        <Notice kind="error">
+          <span>{tracksError} Track details may be unavailable.</span>{' '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={retryTracks}
+            disabled={tracksLoading}
           >
             Retry
           </button>

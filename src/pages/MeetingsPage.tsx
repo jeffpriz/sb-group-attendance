@@ -6,7 +6,8 @@ import { activeMembers, meetingRoster } from '../util.ts'
 
 /** Group home: pick a meeting to take (or review) attendance. */
 export default function MeetingsPage() {
-  const { group } = useGroup()
+  const { group, tracks } = useGroup()
+  const track = tracks?.find((item) => item.id === group.trackId)
   const today = todayIso()
   const members = activeMembers(group)
   const past = group.meetings.filter((m) => m.date <= today).reverse()
@@ -39,7 +40,7 @@ export default function MeetingsPage() {
           <span className="eyebrow">{featured.date === today ? 'Today' : 'Most recent meeting'}</span>
           <span className="featured-date">{formatDate(featured.date, 'long')}</span>
           <span className="featured-status">
-            <Status group={group} meeting={featured} />
+            <MeetingMeta group={group} meeting={featured} trackSessions={track?.sessions} />
           </span>
           <span className="button primary">
             {featured.attendance ? 'Review attendance' : 'Take attendance'}
@@ -64,17 +65,39 @@ export default function MeetingsPage() {
 }
 
 function MeetingList({ group, meetings }: { group: Group; meetings: Meeting[] }) {
+  const { tracks } = useGroup()
+  const sessions = tracks?.find((item) => item.id === group.trackId)?.sessions
   return (
     <ul className="meeting-list">
       {meetings.map((meeting) => (
         <li key={meeting.date}>
           <Link to={`meetings/${meeting.date}`}>
-            <span>{formatDate(meeting.date)}</span>
-            <Status group={group} meeting={meeting} />
+            <span className="meeting-date">{formatDate(meeting.date)}</span>
+            <MeetingMeta group={group} meeting={meeting} trackSessions={sessions} />
           </Link>
         </li>
       ))}
     </ul>
+  )
+}
+
+function MeetingMeta({
+  group,
+  meeting,
+  trackSessions,
+}: {
+  group: Group
+  meeting: Meeting
+  trackSessions?: { id: string; name: string }[]
+}) {
+  const session = trackSessions?.find((item) => item.id === meeting.sessionId)
+  return (
+    <>
+      <span className="meeting-session">{session && <span className="badge">{session.name}</span>}</span>
+      <span className="meeting-status">
+        <Status group={group} meeting={meeting} />
+      </span>
+    </>
   )
 }
 

@@ -9,6 +9,8 @@ import MembersPage from './pages/MembersPage.tsx'
 import SchedulePage from './pages/SchedulePage.tsx'
 import SeasonDetailPage from './pages/SeasonDetailPage.tsx'
 import SeasonsPage from './pages/SeasonsPage.tsx'
+import TrackDetailPage from './pages/TrackDetailPage.tsx'
+import TracksPage from './pages/TracksPage.tsx'
 
 // Charts are only needed on this page, so load them on demand.
 const StatsPage = lazy(() => import('./pages/StatsPage.tsx'))
@@ -30,6 +32,7 @@ export default function App() {
               Groups
             </NavLink>
             <NavLink to="/seasons">Seasons</NavLink>
+            <NavLink to="/tracks">Tracks</NavLink>
             <NavLink to="/stats">Statistics</NavLink>
           </nav>
         </div>
@@ -39,6 +42,8 @@ export default function App() {
           <Route index element={<GroupsPage />} />
           <Route path="seasons" element={<SeasonsPage />} />
           <Route path="seasons/:seasonId" element={<SeasonDetailPage />} />
+          <Route path="tracks" element={<TracksPage />} />
+          <Route path="tracks/:trackId" element={<TrackDetailPage />} />
           <Route path="groups/:groupId" element={<GroupLayout />}>
             <Route index element={<MeetingsPage />} />
             <Route path="members" element={<MembersPage />} />
