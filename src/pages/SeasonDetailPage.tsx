@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import type { Group, GroupSummary, Season, SeasonDetail } from '../../shared/types.ts'
 import { api, ApiRequestError } from '../api.ts'
+import Dialog from '../components/Dialog.tsx'
 import GroupCard from '../components/GroupCard.tsx'
 import Notice from '../components/Notice.tsx'
+import PageHeader from '../components/PageHeader.tsx'
 import { errorMessage, plural } from '../util.ts'
 
 function toSummary(group: Group): GroupSummary {
@@ -31,12 +33,7 @@ function SeasonRenameForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [success, setSuccess] = useState<string>()
-  const nameInput = useRef<HTMLInputElement>(null)
   const trimmedName = name.trim()
-
-  useEffect(() => {
-    if (renaming) nameInput.current?.focus()
-  }, [renaming])
 
   function startRenaming() {
     setName(season.name)
@@ -76,7 +73,7 @@ function SeasonRenameForm({
 
   return (
     <>
-      {error && (
+      {error && !renaming && (
         <Notice kind="error" onDismiss={() => setError(undefined)}>
           {error}
         </Notice>
@@ -86,39 +83,46 @@ function SeasonRenameForm({
           {success}
         </Notice>
       )}
-      {renaming ? (
-        <div className="card">
-          <form onSubmit={rename}>
-            <label className="field">
-              <span>Season name</span>
-              <div className="input-row">
-                <input
-                  ref={nameInput}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  maxLength={100}
-                  required
-                  disabled={busy}
-                />
-                <button
-                  type="submit"
-                  className="primary"
-                  disabled={busy || !trimmedName || trimmedName === season.name}
-                >
-                  {busy ? 'Saving…' : 'Save name'}
-                </button>
-                <button type="button" onClick={cancel} disabled={busy}>
-                  Cancel
-                </button>
-              </div>
-            </label>
-          </form>
-        </div>
-      ) : (
-        <button type="button" onClick={startRenaming}>
-          Rename season
-        </button>
-      )}
+      <button type="button" onClick={startRenaming} aria-haspopup="dialog">
+        Rename season
+      </button>
+      <Dialog
+        open={renaming}
+        title="Rename season"
+        onClose={cancel}
+        closeDisabled={busy}
+      >
+        <form className="dialog-form" onSubmit={rename}>
+          {error && (
+            <Notice kind="error" onDismiss={() => setError(undefined)}>
+              {error}
+            </Notice>
+          )}
+          <label className="field">
+            <span>Season name</span>
+            <div className="input-row">
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={100}
+                required
+                disabled={busy}
+                data-dialog-autofocus
+              />
+              <button
+                type="submit"
+                className="primary"
+                disabled={busy || !trimmedName || trimmedName === season.name}
+              >
+                {busy ? 'Saving…' : 'Save name'}
+              </button>
+              <button type="button" onClick={cancel} disabled={busy}>
+                Cancel
+              </button>
+            </div>
+          </label>
+        </form>
+      </Dialog>
     </>
   )
 }
@@ -353,15 +357,19 @@ function SeasonLoader({ seasonId }: { seasonId: string }) {
       <Link to="/seasons" className="back-link">
         ← All seasons
       </Link>
-      <div className="section-head">
-        <h1>{detail.season.name}</h1>
-        <span className="badge">{plural(seasonGroups.length, 'group')}</span>
-      </div>
-      <SeasonRenameForm
-        key={detail.season.id}
-        season={detail.season}
-        onRenamed={(season) =>
-          setDetail((current) => (current ? { ...current, season } : current))
+      <PageHeader
+        title={detail.season.name}
+        actions={
+          <>
+            <span className="badge">{plural(seasonGroups.length, 'group')}</span>
+            <SeasonRenameForm
+              key={detail.season.id}
+              season={detail.season}
+              onRenamed={(season) =>
+                setDetail((current) => (current ? { ...current, season } : current))
+              }
+            />
+          </>
         }
       />
       {error && (

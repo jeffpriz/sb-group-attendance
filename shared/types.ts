@@ -90,6 +90,19 @@ export interface GroupSummary {
   recordedMeetingCount: number
 }
 
+/** A past scheduled meeting that still needs attendance recorded. */
+export interface MissingAttendanceMeeting {
+  date: string
+  groupId: string
+  groupName: string
+}
+
+/** GET /api/attendance/missing response. */
+export interface MissingAttendanceResponse {
+  asOf: string
+  meetings: MissingAttendanceMeeting[]
+}
+
 export interface SeasonDetail {
   season: Season
   groups: Group[]

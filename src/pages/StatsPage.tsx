@@ -18,6 +18,7 @@ import type { SeasonSummary, StatsResponse } from '../../shared/types.ts'
 import { shortDateLabel } from '../../shared/weeks.ts'
 import { api } from '../api.ts'
 import Notice from '../components/Notice.tsx'
+import PageHeader from '../components/PageHeader.tsx'
 import { errorMessage, plural } from '../util.ts'
 
 const PRESENT_COLOR = '#2e7d4f' // --ok
@@ -176,7 +177,7 @@ export default function StatsPage() {
 
   return (
     <>
-      <h1>Statistics</h1>
+      <PageHeader title="Statistics" />
 
       <section className="card stats-filters" aria-label="Filters">
         <label className="field stats-season-filter">

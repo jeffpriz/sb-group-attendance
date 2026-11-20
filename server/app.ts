@@ -3,10 +3,12 @@ import { existsSync } from 'node:fs'
 import path from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { isValidIsoDate, todayIso, uniqueSortedDates } from '../shared/dates.ts'
+import { findMissingAttendance } from '../shared/missingAttendance.ts'
 import { computeStats } from '../shared/stats.ts'
 import type {
   Group,
   GroupSummary,
+  MissingAttendanceResponse,
   SeasonDetail,
   SeasonSummary,
   StatsResponse,
@@ -111,6 +113,19 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
     const group = await store.get(req.params.groupId)
     if (!group) throw new HttpError(404, 'Group not found')
     res.json(group)
+  })
+
+  api.get('/attendance/missing', async (req, res) => {
+    const rawToday = req.query.today
+    if (rawToday !== undefined && (typeof rawToday !== 'string' || !isValidIsoDate(rawToday))) {
+      throw new HttpError(400, '"today" must look like YYYY-MM-DD')
+    }
+    const asOf = rawToday ?? todayIso()
+    const body: MissingAttendanceResponse = {
+      asOf,
+      meetings: findMissingAttendance(await store.list(), { through: asOf }),
+    }
+    res.json(body)
   })
 
   api.patch('/groups/:groupId', async (req, res) => {
