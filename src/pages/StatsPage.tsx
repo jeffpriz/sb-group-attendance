@@ -14,7 +14,7 @@ import {
   YAxis,
 } from 'recharts'
 import { isValidIsoDate, todayIso } from '../../shared/dates.ts'
-import type { StatsResponse } from '../../shared/types.ts'
+import type { SeasonSummary, StatsResponse } from '../../shared/types.ts'
 import { shortDateLabel } from '../../shared/weeks.ts'
 import { api } from '../api.ts'
 import Notice from '../components/Notice.tsx'
@@ -33,11 +33,18 @@ function percent(rate: number | null, digits = 0): string {
 export default function StatsPage() {
   const [params, setParams] = useSearchParams()
   const groupIds = params.getAll('group')
-  const from = validDate(params.get('from'))
-  const to = validDate(params.get('to'))
+  const seasonId = params.get('season') || undefined
+  const rawFrom = params.get('from') || undefined
+  const rawTo = params.get('to') || undefined
+  const from = validDate(rawFrom)
+  const to = validDate(rawTo)
   const today = todayIso()
-  const key = JSON.stringify([groupIds, from, to, today])
+  const key = JSON.stringify([groupIds, seasonId, rawFrom, rawTo, today])
 
+  const [seasons, setSeasons] = useState<SeasonSummary[]>()
+  const [seasonsLoading, setSeasonsLoading] = useState(true)
+  const [seasonsError, setSeasonsError] = useState<string>()
+  const [seasonsReload, setSeasonsReload] = useState(0)
   const [result, setResult] = useState<{ key: string; data?: StatsResponse; error?: string }>()
   const [metric, setMetric] = useState<Metric>('rate')
 
@@ -47,8 +54,33 @@ export default function StatsPage() {
 
   useEffect(() => {
     let cancelled = false
-    const [ids, f, t, d] = JSON.parse(key) as [string[], string | undefined, string | undefined, string]
-    api.getStats({ groupIds: ids, from: f ?? undefined, to: t ?? undefined, today: d }).then(
+    api.listSeasons().then(
+      (items) => {
+        if (cancelled) return
+        setSeasons(items)
+        setSeasonsLoading(false)
+      },
+      (err) => {
+        if (cancelled) return
+        setSeasonsError(errorMessage(err))
+        setSeasonsLoading(false)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [seasonsReload])
+
+  useEffect(() => {
+    let cancelled = false
+    const [ids, season, f, t, d] = JSON.parse(key) as [
+      string[],
+      string | undefined,
+      string | undefined,
+      string | undefined,
+      string,
+    ]
+    api.getStats({ groupIds: ids, seasonId: season, from: f ?? undefined, to: t ?? undefined, today: d }).then(
       (data) => !cancelled && setResult({ key, data }),
       (err) => !cancelled && setResult({ key, error: errorMessage(err) }),
     )
@@ -62,7 +94,7 @@ export default function StatsPage() {
   if (result?.data && result.data !== shown) setShown(result.data)
   const loading = result?.key !== key
   const error = !loading ? result?.error : undefined
-  const data = shown
+  const data = error ? undefined : shown
 
   function update(change: (p: URLSearchParams) => void) {
     const next = new URLSearchParams(params)
@@ -87,8 +119,21 @@ export default function StatsPage() {
     update((p) => (value ? p.set(name, value) : p.delete(name)))
   }
 
-  const selected = new Set(data?.filter.groupIds ?? groupIds)
-  const allSelected = selected.size === 0
+  function setSeason(value: string) {
+    update((p) => (value ? p.set('season', value) : p.delete('season')))
+  }
+
+  function retrySeasons() {
+    setSeasonsLoading(true)
+    setSeasonsError(undefined)
+    setSeasonsReload((value) => value + 1)
+  }
+
+  const selectedSeason = seasons?.find((season) => season.id === seasonId)
+  const seasonUnavailable = Boolean(seasonId && seasons && !selectedSeason)
+  const selected = new Set(groupIds)
+  const allSelected = groupIds.length === 0
+  const dateParamInvalid = Boolean((rawFrom && !from) || (rawTo && !to))
   const rangeInvalid = Boolean(from && to && from > to)
 
   const weekData = useMemo(
@@ -110,18 +155,60 @@ export default function StatsPage() {
       ]
     : []
   const hasData = Boolean(totals && totals.expected > 0)
-  const filterLabel = allSelected
+  const displayedGroupIds = data?.filter.groupIds
+  const displayedAllGroups = displayedGroupIds === undefined
+  const displayedSelection = new Set(displayedGroupIds ?? [])
+  const displayedFrom = data?.filter.from
+  const displayedTo = data?.filter.to
+  const groupFilterLabel = displayedAllGroups
     ? 'all groups'
     : data?.allGroups
-        .filter((g) => selected.has(g.id))
+        .filter((g) => displayedSelection.has(g.id))
         .map((g) => g.name)
-        .join(', ')
+        .join(', ') || 'selected groups (unavailable)'
+  const displayedSeasonId = data?.filter.seasonId
+  const displayedSeason = seasons?.find((season) => season.id === displayedSeasonId)
+  const seasonFilterLabel = displayedSeasonId
+    ? displayedSeason?.name
+      ? `season “${displayedSeason.name}”`
+      : 'the selected season (unavailable)'
+    : 'all seasons'
 
   return (
     <>
       <h1>Statistics</h1>
 
       <section className="card stats-filters" aria-label="Filters">
+        <label className="field stats-season-filter">
+          <span>Season</span>
+          <select
+            value={seasonId ?? ''}
+            onChange={(event) => setSeason(event.target.value)}
+            disabled={seasonsLoading || (seasons === undefined && Boolean(seasonsError))}
+            aria-describedby="season-filter-help"
+          >
+            <option value="">All seasons</option>
+            {seasonId && !selectedSeason && (
+              <option value={seasonId}>
+                {seasonsLoading
+                  ? 'Loading selected season…'
+                  : seasons
+                    ? 'Unavailable season'
+                    : 'Selected season (details unavailable)'}
+              </option>
+            )}
+            {seasons?.map((season) => (
+              <option key={season.id} value={season.id}>
+                {season.name}
+              </option>
+            ))}
+          </select>
+          <small id="season-filter-help" className="muted">
+            {seasonsLoading
+              ? 'Loading season choices…'
+              : 'Based on groups’ current season assignments.'}
+          </small>
+        </label>
         <div className="field">
           <span id="group-filter-label">Groups</span>
           <div className="chips" role="group" aria-labelledby="group-filter-label">
@@ -167,15 +254,41 @@ export default function StatsPage() {
         </div>
       </section>
 
+      {seasonsError && (
+        <Notice kind="error">
+          <span>Season choices could not be loaded: {seasonsError}</span>{' '}
+          <button
+            type="button"
+            className="link-button"
+            onClick={retrySeasons}
+            disabled={seasonsLoading}
+          >
+            Retry
+          </button>
+        </Notice>
+      )}
+      {seasonUnavailable && (
+        <Notice kind="error">
+          <span>The season in this link is no longer available. Statistics are not broadened to all seasons.</span>{' '}
+          <button type="button" className="link-button" onClick={() => setSeason('')}>
+            Show all seasons
+          </button>
+        </Notice>
+      )}
+      {dateParamInvalid && (
+        <Notice kind="error">Dates in the page address must look like YYYY-MM-DD.</Notice>
+      )}
       {rangeInvalid && <Notice kind="error">“From” must be on or before “To”.</Notice>}
-      {error && !rangeInvalid && <Notice kind="error">{error}</Notice>}
+      {error && !dateParamInvalid && !rangeInvalid && <Notice kind="error">{error}</Notice>}
       {!data && !error && <p className="muted">Loading statistics…</p>}
 
       {data && totals && (
         <div className={loading ? 'stats-body is-loading' : 'stats-body'} aria-busy={loading}>
           <p className="muted small stats-scope">
-            Showing {filterLabel}
-            {from || to ? ` · ${from ? shortDateLabel(from, true) : 'start'} – ${to ? shortDateLabel(to, true) : 'today'}` : ''}
+            Showing {groupFilterLabel} · {seasonFilterLabel}
+            {displayedFrom || displayedTo
+              ? ` · ${displayedFrom ? shortDateLabel(displayedFrom, true) : 'start'} – ${displayedTo ? shortDateLabel(displayedTo, true) : 'today'}`
+              : ''}
           </p>
 
           <div className="stats">
@@ -206,10 +319,19 @@ export default function StatsPage() {
           {!hasData ? (
             <div className="card empty">
               <p>
-                No attendance has been recorded{allSelected ? '' : ' for this selection'}
-                {from || to ? ' in this date range' : ''} yet.
+                No attendance has been recorded{displayedAllGroups ? '' : ' for this selection'}
+                {displayedSeasonId
+                  ? displayedSeason
+                    ? ` in season “${displayedSeason.name}”`
+                    : ' in the selected season'
+                  : ''}
+                {displayedFrom || displayedTo ? ' in this date range' : ''} yet.
               </p>
-              <p className="muted small">Statistics appear here once attendance is taken for a meeting.</p>
+              <p className="muted small">
+                {displayedSeasonId && data.groups.length === 0
+                  ? 'No groups currently match this season and group selection.'
+                  : 'Statistics appear here once attendance is taken for a meeting.'}
+              </p>
             </div>
           ) : (
             <>
@@ -363,6 +485,6 @@ export default function StatsPage() {
   )
 }
 
-function validDate(value: string | null): string | undefined {
+function validDate(value: string | undefined): string | undefined {
   return value && isValidIsoDate(value) ? value : undefined
 }

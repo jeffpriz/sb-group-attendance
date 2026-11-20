@@ -7,12 +7,153 @@ import Notice from '../components/Notice.tsx'
 import { useGroup } from '../groupContext.ts'
 import { activeMembers, byName, errorMessage, plural } from '../util.ts'
 
+function GroupSettingsSection({
+  groupName,
+  groupSeasonId,
+  seasons,
+  seasonsLoading,
+  seasonsError,
+  retrySeasons,
+  busy,
+  onSave,
+  onClose,
+  onDelete,
+}: {
+  groupName: string
+  groupSeasonId: string | undefined
+  seasons: ReturnType<typeof useGroup>['seasons']
+  seasonsLoading: boolean
+  seasonsError: string | undefined
+  retrySeasons: () => void
+  busy: boolean
+  onSave: (name: string, seasonId: string | null) => Promise<void>
+  onClose: () => void
+  onDelete: () => void
+}) {
+  const [name, setName] = useState(groupName)
+  const [seasonSelection, setSeasonSelection] = useState(groupSeasonId ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string>()
+  const trimmedName = name.trim()
+  const invalid = !trimmedName || trimmedName.length > 100
+  const unchanged =
+    trimmedName === groupName && seasonSelection === (groupSeasonId ?? '')
+  const controlsDisabled = busy || saving
+
+  function save(event: FormEvent) {
+    event.preventDefault()
+    if (controlsDisabled || invalid || unchanged) return
+    void updateSettings()
+  }
+
+  async function updateSettings() {
+    setSaving(true)
+    setError(undefined)
+    try {
+      await onSave(trimmedName, seasonSelection || null)
+      onClose()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="card" id="group-settings">
+      <div className="section-head">
+        <h2>Group settings</h2>
+        <button type="button" className="link-button" onClick={onClose} disabled={controlsDisabled}>
+          Close
+        </button>
+      </div>
+      {error && (
+        <Notice kind="error" onDismiss={() => setError(undefined)}>
+          {error}
+        </Notice>
+      )}
+      <form onSubmit={save}>
+        <label className="field">
+          <span>Group name</span>
+          <div className="input-row">
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={100}
+              required
+              disabled={controlsDisabled}
+            />
+          </div>
+        </label>
+        <label className="field">
+          <span>Season</span>
+          <div className="input-row">
+            <select
+              value={seasonSelection}
+              onChange={(event) => setSeasonSelection(event.target.value)}
+              disabled={
+                controlsDisabled ||
+                seasonsLoading ||
+                (!seasons && Boolean(seasonsError))
+              }
+            >
+              <option value="">No season</option>
+              {groupSeasonId && !seasons?.some((season) => season.id === groupSeasonId) && (
+                <option value={groupSeasonId}>
+                  {seasons ? 'Current season unavailable' : 'Current season (details unavailable)'}
+                </option>
+              )}
+              {seasons?.map((season) => (
+                <option key={season.id} value={season.id}>
+                  {season.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </label>
+        {seasonsLoading && <p className="muted small">Loading seasons…</p>}
+        {seasonsError && (
+          <p className="notice notice-error">
+            <span>{seasonsError}</span>
+            <button type="button" className="link-button" onClick={retrySeasons}>
+              Retry
+            </button>
+          </p>
+        )}
+        <div className="group-settings-actions">
+          <div className="group-settings-primary-actions">
+            <button
+              type="submit"
+              className="primary"
+              disabled={controlsDisabled || invalid || unchanged}
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </button>
+            <button type="button" onClick={onClose} disabled={controlsDisabled}>
+              Cancel
+            </button>
+          </div>
+          <button
+            type="button"
+            className="danger group-settings-delete"
+            onClick={onDelete}
+            disabled={controlsDisabled}
+          >
+            Delete group…
+          </button>
+        </div>
+      </form>
+    </section>
+  )
+}
+
 export default function MembersPage() {
-  const { group, setGroup } = useGroup()
+  const { group, setGroup, seasons, seasonsLoading, seasonsError, retrySeasons } = useGroup()
   const location = useLocation()
   const navigate = useNavigate()
   const justCreated = (location.state as { justCreated?: boolean } | null)?.justCreated
   const [name, setName] = useState('')
+  const settingsOpen = location.hash === '#group-settings'
   const [bulkMode, setBulkMode] = useState(false)
   const [bulkText, setBulkText] = useState('')
   const [busy, setBusy] = useState(false)
@@ -20,7 +161,6 @@ export default function MembersPage() {
   const [message, setMessage] = useState<string>()
   const [editingId, setEditingId] = useState<string>()
   const [editName, setEditName] = useState('')
-  const [groupName, setGroupName] = useState(group.name)
   const [showRemoved, setShowRemoved] = useState(false)
   const [removingId, setRemovingId] = useState<string>()
   const [removalDate, setRemovalDate] = useState(todayIso())
@@ -121,14 +261,28 @@ export default function MembersPage() {
     })
   }
 
-  function renameGroup(event: FormEvent) {
-    event.preventDefault()
-    void run(async () => {
-      const updated = await api.renameGroup(group.id, groupName)
+  function closeSettings() {
+    navigate(
+      {
+        pathname: location.pathname,
+        search: location.search,
+        hash: '',
+      },
+      { replace: true },
+    )
+  }
+
+  async function saveSettings(name: string, seasonId: string | null) {
+    let updated = group
+    if (name !== group.name) {
+      updated = await api.renameGroup(group.id, name)
       setGroup(updated)
-      setGroupName(updated.name)
-      setMessage('Group name saved.')
-    })
+    }
+    if (seasonId !== (updated.seasonId ?? null)) {
+      updated = await api.setGroupSeason(group.id, seasonId)
+      setGroup(updated)
+    }
+    setMessage('Group settings saved.')
   }
 
   function deleteGroup() {
@@ -158,6 +312,21 @@ export default function MembersPage() {
         <Notice kind="success" onDismiss={() => setMessage(undefined)}>
           {message}
         </Notice>
+      )}
+
+      {settingsOpen && (
+        <GroupSettingsSection
+          groupName={group.name}
+          groupSeasonId={group.seasonId}
+          seasons={seasons}
+          seasonsLoading={seasonsLoading}
+          seasonsError={seasonsError}
+          retrySeasons={retrySeasons}
+          busy={busy}
+          onSave={saveSettings}
+          onClose={closeSettings}
+          onDelete={deleteGroup}
+        />
       )}
 
       <section className="card">
@@ -381,26 +550,6 @@ export default function MembersPage() {
         </section>
       )}
 
-      <section className="card">
-        <h2>Group settings</h2>
-        <form onSubmit={renameGroup}>
-          <label className="field">
-            <span>Group name</span>
-            <div className="input-row">
-              <input value={groupName} onChange={(e) => setGroupName(e.target.value)} maxLength={100} />
-              <button
-                type="submit"
-                disabled={busy || !groupName.trim() || groupName.trim() === group.name}
-              >
-                Rename
-              </button>
-            </div>
-          </label>
-        </form>
-        <button type="button" className="danger" onClick={deleteGroup} disabled={busy}>
-          Delete group…
-        </button>
-      </section>
     </>
   )
 }

@@ -81,6 +81,60 @@ describe('computeStats', () => {
     expect(ranged.totals.meetingsWithoutAttendance).toBe(1)
   })
 
+  it('filters by the groups currently assigned to a season', () => {
+    const springSunday = { ...sunday, seasonId: 'spring' }
+    const fallWednesday = { ...wednesday, seasonId: 'fall' }
+    const unassigned = { ...wednesday, id: 'unassigned', name: 'Unassigned Group' }
+
+    const stats = computeStats([springSunday, fallWednesday, unassigned], { today, seasonId: 'spring' })
+    expect(stats.groups.map((g) => g.id)).toEqual(['sun'])
+    expect(stats.totals.present).toBe(5)
+  })
+
+  it('intersects season, group and date filters', () => {
+    const springSunday = { ...sunday, seasonId: 'spring' }
+    const springWednesday = { ...wednesday, seasonId: 'spring' }
+    const stats = computeStats([springSunday, springWednesday], {
+      today,
+      seasonId: 'spring',
+      groupIds: ['wed'],
+      from: '2026-10-08',
+      to: '2026-10-20',
+    })
+
+    expect(stats.groups.map((g) => g.id)).toEqual(['wed'])
+    expect(stats.totals).toMatchObject({ present: 1, expected: 2, meetingsWithAttendance: 1 })
+  })
+
+  it('does not use historical attendance to associate reassigned groups with an old season', () => {
+    const reassigned = { ...sunday, seasonId: 'fall' }
+    const oldSeason = computeStats([reassigned], { today, seasonId: 'spring' })
+    const currentSeason = computeStats([reassigned], { today, seasonId: 'fall' })
+
+    expect(oldSeason.groups).toEqual([])
+    expect(currentSeason.groups.map((g) => g.id)).toEqual(['sun'])
+    expect(currentSeason.totals.present).toBe(5)
+  })
+
+  it('returns empty stats for unknown seasons and explicit filters with no matches', () => {
+    const assigned = { ...sunday, seasonId: 'spring' }
+    const unknownSeason = computeStats([assigned], { today, seasonId: 'missing' })
+    const noGroupMatch = computeStats([assigned], { today, seasonId: 'spring', groupIds: ['missing'] })
+    const emptyExplicitGroupFilter = computeStats([assigned], { today, groupIds: [] })
+
+    for (const stats of [unknownSeason, noGroupMatch, emptyExplicitGroupFilter]) {
+      expect(stats.groups).toEqual([])
+      expect(stats.weeks).toEqual([])
+      expect(stats.totals).toMatchObject({
+        present: 0,
+        expected: 0,
+        meetingsWithAttendance: 0,
+        meetingsWithoutAttendance: 0,
+        upcomingMeetings: 0,
+      })
+    }
+  })
+
   it('reports per-group summaries sorted by name', () => {
     const { groups } = computeStats([wednesday, sunday], { today })
     expect(groups.map((g) => [g.name, g.meetingsWithAttendance, g.meetingsWithoutAttendance, g.present, g.expected])).toEqual([

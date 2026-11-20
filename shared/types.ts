@@ -37,12 +37,22 @@ export interface Meeting {
   attendance?: AttendanceRecord
 }
 
+/** A named attendance season. Groups belong to at most one season at a time. */
+export interface Season {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+}
+
 /** A small group, stored as one JSON file per group. */
 export interface Group {
   id: string
   name: string
   createdAt: string
   updatedAt: string
+  /** The group's current season. Omitted when the group is not assigned. */
+  seasonId?: string
   /** Set while the group is hidden from the active groups list. */
   archivedAt?: string
   members: Member[]
@@ -54,10 +64,20 @@ export interface Group {
 export interface GroupSummary {
   id: string
   name: string
+  seasonId?: string
   archived: boolean
   memberCount: number
   meetingDates: string[]
   recordedMeetingCount: number
+}
+
+export interface SeasonDetail {
+  season: Season
+  groups: Group[]
+}
+
+export interface SeasonSummary extends Season {
+  groups: GroupSummary[]
 }
 
 export interface ApiError {
