@@ -1,4 +1,11 @@
-import type { Group, GroupSummary, StatsResponse } from '../shared/types.ts'
+import type {
+  Group,
+  GroupSummary,
+  Season,
+  SeasonDetail,
+  SeasonSummary,
+  StatsResponse,
+} from '../shared/types.ts'
 
 export class ApiRequestError extends Error {
   readonly status: number
@@ -32,6 +39,7 @@ const enc = encodeURIComponent
 
 export interface StatsQuery {
   groupIds: string[]
+  seasonId?: string
   from?: string
   to?: string
   today: string
@@ -40,6 +48,7 @@ export interface StatsQuery {
 function statsQuery(q: StatsQuery): string {
   const params = new URLSearchParams()
   for (const id of q.groupIds) params.append('group', id)
+  if (q.seasonId) params.set('season', q.seasonId)
   if (q.from) params.set('from', q.from)
   if (q.to) params.set('to', q.to)
   params.set('today', q.today)
@@ -50,11 +59,19 @@ export const api = {
   getStats: (q: StatsQuery) => request<StatsResponse>('GET', `/stats?${statsQuery(q)}`),
   listGroups: () => request<GroupSummary[]>('GET', '/groups'),
   getGroup: (id: string) => request<Group>('GET', `/groups/${enc(id)}`),
-  createGroup: (name: string) => request<Group>('POST', '/groups', { name }),
+  createGroup: (name: string, seasonId?: string) =>
+    request<Group>('POST', '/groups', { name, seasonId }),
   renameGroup: (id: string, name: string) => request<Group>('PATCH', `/groups/${enc(id)}`, { name }),
   setGroupArchived: (id: string, archived: boolean) =>
     request<Group>('PATCH', `/groups/${enc(id)}`, { archived }),
+  setGroupSeason: (id: string, seasonId: string | null) =>
+    request<Group>('PATCH', `/groups/${enc(id)}`, { seasonId }),
   deleteGroup: (id: string) => request<void>('DELETE', `/groups/${enc(id)}`),
+
+  listSeasons: () => request<SeasonSummary[]>('GET', '/seasons'),
+  getSeason: (id: string) => request<SeasonDetail>('GET', `/seasons/${enc(id)}`),
+  createSeason: (name: string) => request<Season>('POST', '/seasons', { name }),
+  renameSeason: (id: string, name: string) => request<Season>('PATCH', `/seasons/${enc(id)}`, { name }),
 
   addMember: (groupId: string, name: string) =>
     request<Group>('POST', `/groups/${enc(groupId)}/members`, { name }),

@@ -4,7 +4,7 @@ import path from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { isValidIsoDate, todayIso, uniqueSortedDates } from '../shared/dates.ts'
 import { computeStats } from '../shared/stats.ts'
-import type { Group, GroupSummary, StatsResponse } from '../shared/types.ts'
+import type { Group, GroupSummary, SeasonDetail, SeasonSummary, StatsResponse } from '../shared/types.ts'
 import { GroupStore, HttpError } from './storage.ts'
 
 export interface AppOptions {
@@ -44,11 +44,20 @@ function toSummary(group: Group): GroupSummary {
   return {
     id: group.id,
     name: group.name,
+    ...(group.seasonId !== undefined ? { seasonId: group.seasonId } : {}),
     archived: Boolean(group.archivedAt),
     memberCount: group.members.filter((m) => !m.removedAt).length,
     meetingDates: group.meetings.map((m) => m.date),
     recordedMeetingCount: group.meetings.filter((m) => m.attendance).length,
   }
+}
+
+async function optionalSeasonId(store: GroupStore, value: unknown, required = false): Promise<string | undefined> {
+  if (!required && value === undefined) return undefined
+  if (value === null) return undefined
+  if (typeof value !== 'string' || !value) throw new HttpError(400, 'seasonId must be a string or null')
+  if (!(await store.getSeason(value))) throw new HttpError(400, 'Season not found')
+  return value
 }
 
 export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions) {
@@ -75,7 +84,8 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
 
   api.post('/groups', async (req, res) => {
     const name = requireName(req.body?.name, 'Group name')
-    const group = await store.create(name)
+    const seasonId = await optionalSeasonId(store, req.body?.seasonId)
+    const group = await store.create(name, seasonId)
     res.status(201).json(group)
   })
 
@@ -88,19 +98,60 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
   api.patch('/groups/:groupId', async (req, res) => {
     const hasName = req.body?.name !== undefined
     const hasArchived = req.body?.archived !== undefined
-    if (!hasName && !hasArchived) throw new HttpError(400, 'Provide a group name or archived status')
+    const hasSeason = req.body?.seasonId !== undefined
+    if (!hasName && !hasArchived && !hasSeason) {
+      throw new HttpError(400, 'Provide a group name, archived status or seasonId')
+    }
     const name = hasName ? requireName(req.body.name, 'Group name') : undefined
     if (hasArchived && typeof req.body.archived !== 'boolean') {
       throw new HttpError(400, 'Archived status must be true or false')
     }
+    const seasonId = hasSeason ? await optionalSeasonId(store, req.body.seasonId, true) : undefined
     const group = await store.update(req.params.groupId, (g) => {
       if (name !== undefined) g.name = name
+      if (hasSeason) {
+        if (seasonId === undefined) delete g.seasonId
+        else g.seasonId = seasonId
+      }
       if (hasArchived) {
         if (req.body.archived) g.archivedAt = g.archivedAt ?? new Date().toISOString()
         else delete g.archivedAt
       }
     })
     res.json(group)
+  })
+
+  // ---- Seasons ------------------------------------------------------------
+
+  api.get('/seasons', async (_req, res) => {
+    const [seasons, groups] = await Promise.all([store.listSeasons(), store.list()])
+    const body: SeasonSummary[] = seasons.map((season) => ({
+      ...season,
+      groups: groups.filter((group) => group.seasonId === season.id).map(toSummary),
+    }))
+    res.json(body)
+  })
+
+  api.post('/seasons', async (req, res) => {
+    const name = requireName(req.body?.name, 'Season name')
+    res.status(201).json(await store.createSeason(name))
+  })
+
+  api.patch('/seasons/:seasonId', async (req, res) => {
+    const name = requireName(req.body?.name, 'Season name')
+    res.json(
+      await store.updateSeason(req.params.seasonId, (season) => {
+        season.name = name
+      }),
+    )
+  })
+
+  api.get('/seasons/:seasonId', async (req, res) => {
+    const season = await store.getSeason(req.params.seasonId)
+    if (!season) throw new HttpError(404, 'Season not found')
+    const groups = (await store.list()).filter((group) => group.seasonId === season.id)
+    const body: SeasonDetail = { season, groups }
+    res.json(body)
   })
 
   api.delete('/groups/:groupId', async (req, res) => {
@@ -274,8 +325,9 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
   })
 
   // Attendance statistics. Query: group (repeatable; all groups if omitted),
-  // from / to (YYYY-MM-DD, inclusive), today (the client's local date, so
-  // "missed" vs "upcoming" matches the user's calendar, not the server's).
+  // season (exact current group assignment), from / to (YYYY-MM-DD, inclusive),
+  // today (the client's local date, so "missed" vs "upcoming" matches the
+  // user's calendar, not the server's).
   api.get('/stats', async (req, res) => {
     const list = (v: unknown): string[] =>
       (Array.isArray(v) ? v : v === undefined ? [] : [v]).filter((x): x is string => typeof x === 'string' && x !== '')
@@ -284,16 +336,23 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
       if (typeof v !== 'string' || !isValidIsoDate(v)) throw new HttpError(400, `"${label}" must look like YYYY-MM-DD`)
       return v
     }
+    const optionalString = (v: unknown, label: string): string | undefined => {
+      if (v === undefined || v === '') return undefined
+      if (typeof v !== 'string') throw new HttpError(400, `"${label}" must be a string`)
+      return v
+    }
     const from = optionalDate(req.query.from, 'from')
     const to = optionalDate(req.query.to, 'to')
     const today = optionalDate(req.query.today, 'today') ?? new Date().toISOString().slice(0, 10)
+    const seasonId = optionalString(req.query.season, 'season')
     if (from && to && from > to) throw new HttpError(400, '"from" must be on or before "to"')
     const groups = await store.list()
     const known = new Set(groups.map((g) => g.id))
-    const groupIds = list(req.query.group).filter((id) => known.has(id))
+    const requestedGroupIds = list(req.query.group)
+    const groupIds = req.query.group === undefined ? undefined : requestedGroupIds.filter((id) => known.has(id))
     const body: StatsResponse = {
-      ...computeStats(groups, { groupIds, from, to, today }),
-      filter: { groupIds, from, to, today },
+      ...computeStats(groups, { groupIds, seasonId, from, to, today }),
+      filter: { groupIds, seasonId, from, to, today },
       allGroups: groups.map((g) => ({ id: g.id, name: g.name })).sort((a, b) => a.name.localeCompare(b.name)),
     }
     res.json(body)

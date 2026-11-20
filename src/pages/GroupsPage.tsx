@@ -1,24 +1,59 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { formatDate, todayIso } from '../../shared/dates.ts'
-import type { GroupSummary } from '../../shared/types.ts'
+import type { GroupSummary, SeasonSummary } from '../../shared/types.ts'
 import { api } from '../api.ts'
+import GroupCard from '../components/GroupCard.tsx'
 import Notice from '../components/Notice.tsx'
-import { errorMessage, plural } from '../util.ts'
+import { errorMessage } from '../util.ts'
 
 export default function GroupsPage() {
   const [groups, setGroups] = useState<GroupSummary[]>()
+  const [seasons, setSeasons] = useState<SeasonSummary[]>()
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
   const [name, setName] = useState('')
+  const [seasonId, setSeasonId] = useState('')
   const [creating, setCreating] = useState(false)
   const [changingId, setChangingId] = useState<string>()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const showingArchived = searchParams.get('view') === 'archived'
 
+  const load = useCallback(async () => {
+    const [groupResult, seasonResult] = await Promise.allSettled([
+      api.listGroups(),
+      api.listSeasons(),
+    ])
+    const errors: string[] = []
+    if (groupResult.status === 'fulfilled') setGroups(groupResult.value)
+    else errors.push(`Groups: ${errorMessage(groupResult.reason)}`)
+    if (seasonResult.status === 'fulfilled') setSeasons(seasonResult.value)
+    else errors.push(`Seasons: ${errorMessage(seasonResult.reason)}`)
+    setError(errors.length ? errors.join(' ') : undefined)
+    setLoading(false)
+  }, [])
+
+  function retry() {
+    setLoading(true)
+    void load()
+  }
+
   useEffect(() => {
     document.title = 'Group Attendance · Springbrook Community Church'
-    api.listGroups().then(setGroups, (err) => setError(errorMessage(err)))
+    let cancelled = false
+    Promise.allSettled([api.listGroups(), api.listSeasons()]).then(([groupResult, seasonResult]) => {
+      if (cancelled) return
+      const errors: string[] = []
+      if (groupResult.status === 'fulfilled') setGroups(groupResult.value)
+      else errors.push(`Groups: ${errorMessage(groupResult.reason)}`)
+      if (seasonResult.status === 'fulfilled') setSeasons(seasonResult.value)
+      else errors.push(`Seasons: ${errorMessage(seasonResult.reason)}`)
+      setError(errors.length ? errors.join(' ') : undefined)
+      setLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   async function createGroup(event: FormEvent) {
@@ -27,7 +62,7 @@ export default function GroupsPage() {
     setCreating(true)
     setError(undefined)
     try {
-      const group = await api.createGroup(name)
+      const group = await api.createGroup(name, seasonId || undefined)
       navigate(`/groups/${group.id}/members`, { state: { justCreated: true } })
     } catch (err) {
       setError(errorMessage(err))
@@ -50,7 +85,6 @@ export default function GroupsPage() {
     }
   }
 
-  const today = todayIso()
   const activeCount = groups?.filter((group) => !group.archived).length
   const archivedCount = groups?.filter((group) => group.archived).length
   const visibleGroups = groups?.filter((group) => group.archived === showingArchived)
@@ -77,9 +111,16 @@ export default function GroupsPage() {
           Archived groups are kept with all their members, meetings, and attendance history.
         </p>
       )}
-      {error && <Notice kind="error">{error}</Notice>}
+      {error && (
+        <Notice kind="error">
+          <span>{error}</span>{' '}
+          <button type="button" className="link-button" onClick={retry} disabled={loading}>
+            Retry
+          </button>
+        </Notice>
+      )}
 
-      {groups === undefined && !error && <p className="muted">Loading groups…</p>}
+      {groups === undefined && loading && <p className="muted">Loading groups…</p>}
       {visibleGroups?.length === 0 && (
         <div className="card empty">
           <p>
@@ -92,35 +133,15 @@ export default function GroupsPage() {
 
       {visibleGroups && visibleGroups.length > 0 && (
         <ul className="group-list">
-          {visibleGroups.map((group) => {
-            const next = group.meetingDates.find((d) => d >= today)
-            return (
-              <li key={group.id} className="group-list-item">
-                <Link to={`/groups/${group.id}`} className="group-card">
-                  <span className="group-card-name">{group.name}</span>
-                  <span className="group-card-meta">
-                    {plural(group.memberCount, 'member')} · {plural(group.meetingDates.length, 'meeting')}
-                  </span>
-                  <span className="group-card-meta">
-                    {next
-                      ? next === today
-                        ? 'Meeting today'
-                        : `Next meeting: ${formatDate(next)}`
-                      : 'No upcoming meetings'}
-                  </span>
-                </Link>
-                <button
-                  type="button"
-                  className="group-card-action link-button"
-                  onClick={() => void setArchived(group)}
-                  disabled={changingId === group.id}
-                  aria-label={`${group.archived ? 'Restore' : 'Archive'} ${group.name}`}
-                >
-                  {changingId === group.id ? 'Saving…' : group.archived ? 'Restore' : 'Archive'}
-                </button>
-              </li>
-            )
-          })}
+          {visibleGroups.map((group) => (
+            <GroupCard
+              key={group.id}
+              group={group}
+              seasonName={seasons?.find((season) => season.id === group.seasonId)?.name}
+              archiveAction={() => void setArchived(group)}
+              changing={changingId === group.id}
+            />
+          ))}
         </ul>
       )}
 
@@ -141,6 +162,21 @@ export default function GroupsPage() {
                 {creating ? 'Creating…' : 'Create group'}
               </button>
             </div>
+          </label>
+          <label className="field">
+            <span>Season (optional)</span>
+            <select
+              value={seasonId}
+              onChange={(event) => setSeasonId(event.target.value)}
+              disabled={loading || creating || (seasons === undefined && Boolean(error))}
+            >
+              <option value="">No season</option>
+              {seasons?.map((season) => (
+                <option key={season.id} value={season.id}>
+                  {season.name}
+                </option>
+              ))}
+            </select>
           </label>
         </form>
       )}

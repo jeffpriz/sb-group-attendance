@@ -58,8 +58,10 @@ export function expectedMembers(
 }
 
 export interface StatsFilter {
-  /** Only these groups (all groups when empty or missing). */
+  /** Only these groups (all groups when missing). An explicitly empty list matches no groups. */
   groupIds?: string[]
+  /** Only groups currently assigned to this exact season ID. */
+  seasonId?: string
   /** Only meetings on or after this date (YYYY-MM-DD). */
   from?: string
   /** Only meetings on or before this date (YYYY-MM-DD). */
@@ -107,8 +109,10 @@ function tally(present: number, expected: number): Tally {
 }
 
 export function computeStats(allGroups: Group[], filter: StatsFilter): AttendanceStats {
-  const wanted = filter.groupIds?.length ? new Set(filter.groupIds) : undefined
-  const groups = allGroups.filter((g) => !wanted || wanted.has(g.id))
+  const wanted = filter.groupIds === undefined ? undefined : new Set(filter.groupIds)
+  const groups = allGroups.filter(
+    (g) => (!wanted || wanted.has(g.id)) && (filter.seasonId === undefined || g.seasonId === filter.seasonId),
+  )
   const inRange = (date: string) => (!filter.from || date >= filter.from) && (!filter.to || date <= filter.to)
 
   const weekly = new Map<string, { present: number; expected: number; meetings: number }>()

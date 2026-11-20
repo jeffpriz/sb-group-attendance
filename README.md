@@ -4,9 +4,9 @@ A small web app for tracking **small-group attendance at Springbrook Community C
 
 Group leaders and church admins use it to set up each group (name, members and meeting schedule), check off who came to each meeting, and later look back at attendance history. It works on a phone, so leaders can take attendance during the meeting.
 
-- **Groups:** one entry per small group.
+- **Groups:** one entry per small group, optionally assigned to a season.
 - **Members:** names only. No contact details or other personal information are stored.
-- **Data:** saved as plain JSON files on the server (one file per group). There is no database and no login.
+- **Data:** saved as plain JSON files on the server (one file per group or season). There is no database and no login.
 
 ---
 
@@ -25,7 +25,7 @@ On the **Members** tab:
 - **One at a time:** type a **Member name** and click **Add** (or press Enter). The box stays ready for the next name.
 - **Several at once:** click **Add several at once**, paste names into **Names (one per line)**, and click **Add members**.
 - **Rename** or **Remove** a member from the list. A removed member is hidden from new meetings, but their past attendance is kept. **Show removed members** lets you **Restore** them.
-- **Group settings** at the bottom lets you rename the group or **Delete group…** (you must type `DELETE` to confirm; this permanently deletes the group, its members, schedule and attendance).
+- **Change settings** at the top of the group opens **Group settings** above the member controls, where you can rename the group, change its season, or **Delete group…** (you must type `DELETE` to confirm; this permanently deletes the group, its members, schedule and attendance).
 
 ### 3. Build the meeting schedule
 
@@ -56,11 +56,16 @@ The **History** tab (once at least one meeting has attendance) shows:
 - **Attendance grid:** members × meetings with ✓ marks.
 - **Download CSV:** the grid as a spreadsheet file.
 
-### 6. Statistics
+### 6. Seasons
+
+Use **Seasons** in the header to create named seasons and open a season to see every currently assigned group, including archived groups in a separate list. A group can belong to at most one season; change, reassign, or remove its season from **Members → Group settings**. Groups created before seasons were introduced remain unassigned until someone assigns them.
+
+### 7. Statistics
 
 Click **Statistics** in the header (or **View statistics** on the home page) to see attendance across groups.
 
-- **Groups:** **All groups** (the default), or tap one or more group names to include only those groups. Use **From** / **To** to limit the dates. Filters are kept in the page address (for example `/stats?group=<id>&from=2026-09-01`), so you can bookmark or share a view.
+- **Season:** **All seasons** (the default), or one season to include only groups currently assigned to it. Reassigning a group moves all of its attendance statistics into its current season.
+- **Groups:** **All groups** (the default), or tap one or more group names to include only those groups. Season and group filters are combined, so a group that is not in the selected season does not contribute. Use **From** / **To** to limit the dates. Filters are kept in the page address (for example `/stats?season=<id>&group=<id>&from=2026-09-01`), so you can bookmark or share a view.
 - **Attendance %**, people **present / expected**, and the number of meetings recorded. Past meetings without attendance taken are listed separately and are not counted.
 - **Present vs absent:** a pie chart of all the attendance marks.
 - **By week:** a line chart of attendance per week. Weeks run Sunday to Saturday, so a Sunday group and a Wednesday group in the same week are combined (labelled by the Sunday, e.g. "Oct 11"). Switch between **%** and **Present** (head count). Weeks with no attendance show as gaps.
@@ -81,7 +86,7 @@ Click **Statistics** in the header (or **View statistics** on the home page) to 
 | Calendar | [React DayPicker](https://daypicker.dev) (multiple-date selection) |
 | Charts | [Recharts](https://recharts.org) (statistics page, loaded only when opened) |
 | API server | [Express](https://expressjs.com) 5 in TypeScript, run with [tsx](https://tsx.is) |
-| Storage | JSON files on disk, one per group |
+| Storage | JSON files on disk, one per group or season |
 | Tests / lint | [Vitest](https://vitest.dev) + Supertest, [oxlint](https://oxc.rs) |
 
 In development, Vite serves the website and forwards `/api` requests to the Express server. In production (`npm start` or Docker), the Express server serves both the built website and the API on one port.
@@ -95,6 +100,8 @@ In development, Vite serves the website and forwards `/api` requests to the Expr
 │   ├── pages/                # One component per page/tab
 │   │   ├── GroupsPage.tsx        # Home: group list + "Create a group"
 │   │   ├── GroupLayout.tsx       # Loads a group, shows its name and tabs
+│   │   ├── SeasonsPage.tsx       # Season list + "Create a season"
+│   │   ├── SeasonDetailPage.tsx  # Active and archived groups in one season
 │   │   ├── MeetingsPage.tsx      # Attendance tab: pick a meeting
 │   │   ├── AttendancePage.tsx    # Check off members for one meeting
 │   │   ├── MembersPage.tsx       # Add/rename/remove members, group settings
@@ -131,10 +138,14 @@ All endpoints are under `/api` and send and receive JSON. Every change returns t
 | Method | Path | Body | Purpose |
 | ------ | ---- | ---- | ------- |
 | GET | `/health` | | `{ ok, dataWritable }`; returns 503 if the data folder can't be written |
+| GET | `/seasons` | | List seasons and their assigned groups |
+| POST | `/seasons` | `{ name }` | Create a season |
+| PATCH | `/seasons/:seasonId` | `{ name }` | Rename a season |
+| GET | `/seasons/:seasonId` | | Get `{ season, groups }` |
 | GET | `/groups` | | List groups (summary) |
-| POST | `/groups` | `{ name }` | Create a group |
+| POST | `/groups` | `{ name, seasonId? }` | Create a group, optionally assigned to a season |
 | GET | `/groups/:groupId` | | Get one group (members, meetings, attendance) |
-| PATCH | `/groups/:groupId` | `{ name }` | Rename a group |
+| PATCH | `/groups/:groupId` | `{ name?, archived?, seasonId? }` | Rename, archive, or change a group's season (`null` unassigns) |
 | DELETE | `/groups/:groupId` | | Delete a group |
 | POST | `/groups/:groupId/members` | `{ name }` | Add a member |
 | PATCH | `/groups/:groupId/members/:memberId` | `{ name }` or `{ restore: true }` | Rename or restore a member |
@@ -142,19 +153,21 @@ All endpoints are under `/api` and send and receive JSON. Every change returns t
 | PUT | `/groups/:groupId/meetings` | `{ dates: ["2026-10-07", …], force? }` | Replace the meeting schedule |
 | PUT | `/groups/:groupId/meetings/:date/attendance` | `{ presentMemberIds: [...] }` | Save attendance for a meeting |
 | DELETE | `/groups/:groupId/meetings/:date/attendance` | | Clear attendance for a meeting |
-| GET | `/stats?group=…&from=…&to=…&today=…` | | Attendance statistics (see below) |
+| GET | `/stats?season=…&group=…&from=…&to=…&today=…` | | Attendance statistics (see below) |
 
 `PUT …/meetings` keeps attendance for dates that stay on the schedule. Removing a date that already has attendance returns `409` unless `force: true` is sent. Attendance can only be saved for a scheduled date.
 
-`GET /stats` query parameters are all optional: `group` (repeat for several groups; all groups if omitted; unknown IDs are ignored), `from` / `to` (`YYYY-MM-DD`, inclusive), and `today` (the browser's local date, used to tell missed meetings from upcoming ones; defaults to the server's UTC date). The response has `totals` (`present`, `expected`, `absent`, `rate` 0–1 or `null`, `meetingsWithAttendance`, `meetingsWithoutAttendance`, `upcomingMeetings`), `weeks` (one entry per Sunday-start week from the first to the last recorded week, with `weekStart`, `meetings` and the same counts), `groups` (per-group counts), `filter` (what was applied) and `allGroups` (`id` and `name` for the group picker). The calculation lives in `shared/stats.ts`.
+`GET /stats` query parameters are all optional: `season` (the exact current assignment; an unknown ID matches no groups), `group` (repeat for several groups; all groups if omitted; unknown IDs are ignored while an explicitly all-unknown selection still matches no groups), `from` / `to` (`YYYY-MM-DD`, inclusive), and `today` (the browser's local date, used to tell missed meetings from upcoming ones; defaults to the server's UTC date). Season, group, and date filters are combined. The response has `totals` (`present`, `expected`, `absent`, `rate` 0–1 or `null`, `meetingsWithAttendance`, `meetingsWithoutAttendance`, `upcomingMeetings`), `weeks` (one entry per Sunday-start week from the first to the last recorded week, with `weekStart`, `meetings` and the same counts), `groups` (per-group counts), `filter` (what was applied) and `allGroups` (`id` and `name` for the group picker). The calculation lives in `shared/stats.ts`.
 
 ### Data model
 
-Each group is one file: `DATA_DIR/groups/<group-id>.json`. `DATA_DIR` is `./data` by default.
+Each group is one file at `DATA_DIR/groups/<group-id>.json`; seasons use matching
+files at `DATA_DIR/seasons/<season-id>.json`. `DATA_DIR` is `./data` by default.
 
 | Field | Meaning |
 | ----- | ------- |
-| `id`, `name`, `createdAt`, `updatedAt` | The group |
+| `id`, `name`, `createdAt`, `updatedAt` | The group or season |
+| `seasonId?` | The group's current season; absent when unassigned. Historical attendance follows the current assignment. |
 | `members[]` | `{ id, name, addedAt, removedAt? }`. `removedAt` is set when a member is removed; they stay in the file so history keeps their name. |
 | `meetings[]` | `{ date, attendance? }`, sorted by date. `date` is a calendar date (`YYYY-MM-DD`). `attendance` is missing until it's taken. |
 | `meetings[].attendance` | `{ presentMemberIds[], recordedAt }`: who was there and when it was saved |
@@ -198,7 +211,7 @@ npm run dev
 
 - Open **http://localhost:5173**. That's the Vite dev server, which reloads instantly when you edit `src/`.
 - The API server runs on **http://localhost:3001** and restarts when you edit `server/` or `shared/`.
-- Data goes to `./data/groups/*.json`. Delete that folder to start fresh.
+- Data goes to `./data/groups/*.json` and `./data/seasons/*.json`. Delete the `data` folder to start fresh.
 - Stop both servers with **Ctrl+C**.
 
 **Optional local settings:** run `cp .env.example .env` and edit `.env` to set any of the [configuration](#configuration) variables. The server reads `.env` at startup, and the dev proxy picks up `PORT`. Variables set in your shell take precedence. `.env` is gitignored.
@@ -236,7 +249,7 @@ Set these in your shell, in a local `.env` file, with `docker run -e`, or as env
 | `HOST` | `0.0.0.0` | Address the server binds to (all network interfaces). Use `127.0.0.1` for this computer only. |
 | `ATTENDANCE_DATA_PATH` | `./data` | **docker-compose.yml only:** host folder mounted into the container at `/data`. |
 
-On startup the server creates `DATA_DIR/groups/` if it's missing, checks that it can write there, and logs `Data folder: …`. If it can't write, it prints an error and exits instead of starting.
+On startup the server creates `DATA_DIR/groups/` and `DATA_DIR/seasons/` if they're missing, checks that it can write there, and logs `Data folder: …`. If it can't write, it prints an error and exits instead of starting.
 
 ---
 

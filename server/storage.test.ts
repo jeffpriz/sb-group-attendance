@@ -29,6 +29,43 @@ describe('GroupStore', () => {
     expect(await store.get(group.id)).toEqual(group)
   })
 
+  it('saves and lists seasons in separate JSON files', async () => {
+    const winter = await store.createSeason('Winter 2027')
+    const fall = await store.createSeason('Fall 2026')
+    const file = path.join(dataDir, 'seasons', `${winter.id}.json`)
+    expect(JSON.parse(await readFile(file, 'utf8'))).toEqual(winter)
+    expect((await store.listSeasons()).map((season) => season.id)).toEqual([fall.id, winter.id])
+    expect(await store.getSeason(winter.id)).toEqual(winter)
+  })
+
+  it('updates seasons atomically while preserving their identity', async () => {
+    const season = await store.createSeason('Original')
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        store.updateSeason(season.id, (saved) => {
+          saved.name = `Rename ${index}`
+        }),
+      ),
+    )
+
+    const saved = await store.getSeason(season.id)
+    expect(saved).toMatchObject({
+      id: season.id,
+      createdAt: season.createdAt,
+      name: expect.stringMatching(/^Rename \d+$/),
+      updatedAt: expect.any(String),
+    })
+    expect(await readdir(path.join(dataDir, 'seasons'))).toEqual([`${season.id}.json`])
+    await expect(store.updateSeason('missing', () => {})).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('persists an optional season assignment with a group', async () => {
+    const season = await store.createSeason('Spring 2027')
+    const assigned = await store.create('Tuesday Men', season.id)
+    expect(assigned.seasonId).toBe(season.id)
+    expect((await store.get(assigned.id))?.seasonId).toBe(season.id)
+  })
+
   it('lists groups sorted by name', async () => {
     await store.create('Young Adults')
     await store.create('alpha group')
@@ -69,6 +106,7 @@ describe('GroupStore.init', () => {
     const fresh = new GroupStore(nested)
     await fresh.init()
     expect((await stat(path.join(nested, 'groups'))).isDirectory()).toBe(true)
+    expect((await stat(path.join(nested, 'seasons'))).isDirectory()).toBe(true)
     expect(await fresh.isWritable()).toBe(true)
     // The write test leaves nothing behind.
     expect(await readdir(path.join(nested, 'groups'))).toEqual([])
@@ -90,14 +128,17 @@ describe('GroupStore.init', () => {
     expect((await readdir(groups)).sort()).toEqual(['keep.json', 'new.json.1.y.tmp'])
   })
 
-  it.skipIf(process.getuid?.() === 0)('fails clearly when the folder is not writable', async () => {
-    const locked = path.join(dataDir, 'locked')
-    await mkdir(path.join(locked, 'groups'), { recursive: true })
-    await chmod(path.join(locked, 'groups'), 0o555)
-    try {
-      await expect(new GroupStore(locked).init()).rejects.toThrow(/not writable/)
-    } finally {
-      await chmod(path.join(locked, 'groups'), 0o755)
-    }
-  })
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'fails clearly when the folder is not writable',
+    async () => {
+      const locked = path.join(dataDir, 'locked')
+      await mkdir(path.join(locked, 'groups'), { recursive: true })
+      await chmod(path.join(locked, 'groups'), 0o555)
+      try {
+        await expect(new GroupStore(locked).init()).rejects.toThrow(/not writable/)
+      } finally {
+        await chmod(path.join(locked, 'groups'), 0o755)
+      }
+    },
+  )
 })

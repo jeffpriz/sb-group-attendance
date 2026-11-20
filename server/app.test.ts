@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import request from 'supertest'
@@ -246,6 +246,190 @@ describe('API', () => {
   })
 })
 
+describe('Seasons API', () => {
+  it('creates, lists and details seasons with their currently assigned groups', async () => {
+    const listInitially = await request(app).get('/api/seasons').expect(200)
+    expect(listInitially.body).toEqual([])
+
+    const spring = (await request(app).post('/api/seasons').send({ name: '  Spring   2027 ' }).expect(201)).body
+    const fall = (await request(app).post('/api/seasons').send({ name: 'Fall 2026' }).expect(201)).body
+    expect(spring).toMatchObject({
+      name: 'Spring 2027',
+      id: expect.any(String),
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+    })
+
+    const created = await request(app)
+      .post('/api/groups')
+      .send({ name: 'Assigned Group', seasonId: spring.id })
+      .expect(201)
+    expect(created.body.seasonId).toBe(spring.id)
+
+    const list = await request(app).get('/api/seasons').expect(200)
+    expect(list.body.map((season: { name: string }) => season.name)).toEqual(['Fall 2026', 'Spring 2027'])
+    expect(list.body.find((season: { id: string }) => season.id === spring.id).groups).toMatchObject([
+      { id: created.body.id, seasonId: spring.id },
+    ])
+    expect(list.body.find((season: { id: string }) => season.id === fall.id).groups).toEqual([])
+
+    const detail = await request(app).get(`/api/seasons/${spring.id}`).expect(200)
+    expect(detail.body.season).toEqual(spring)
+    expect(detail.body.groups.map((group: Group) => group.id)).toEqual([created.body.id])
+  })
+
+  it('validates season names and rejects unknown season IDs', async () => {
+    await request(app).post('/api/seasons').send({}).expect(400)
+    await request(app).post('/api/seasons').send({ name: ' \t ' }).expect(400)
+    await request(app).post('/api/seasons').send({ name: 'x'.repeat(101) }).expect(400)
+    await request(app).post('/api/seasons').send({ name: 'Duplicate' }).expect(201)
+    await request(app).post('/api/seasons').send({ name: 'Duplicate' }).expect(201)
+
+    await request(app).post('/api/groups').send({ name: 'Bad Group', seasonId: 'missing' }).expect(400)
+    await request(app).post('/api/groups').send({ name: 'Bad Group', seasonId: 42 }).expect(400)
+    await request(app).get('/api/seasons/missing').expect(404)
+    expect((await request(app).get('/api/groups').expect(200)).body).toEqual([])
+  })
+
+  it('renames a season using normalized validation and preserves assignments', async () => {
+    const season = (await request(app).post('/api/seasons').send({ name: 'Spring 2027' }).expect(201)).body
+    const group = (
+      await request(app).post('/api/groups').send({ name: 'Assigned Group', seasonId: season.id }).expect(201)
+    ).body
+
+    const originalOnDisk = JSON.parse(
+      await readFile(path.join(dataDir, 'seasons', `${season.id}.json`), 'utf8'),
+    )
+    originalOnDisk.updatedAt = '2020-01-01T00:00:00.000Z'
+    await writeFile(
+      path.join(dataDir, 'seasons', `${season.id}.json`),
+      JSON.stringify(originalOnDisk, null, 2) + '\n',
+    )
+
+    const renamed = await request(app)
+      .patch(`/api/seasons/${season.id}`)
+      .send({ name: '  Fall   2027  ' })
+      .expect(200)
+    expect(renamed.body).toEqual({
+      ...season,
+      name: 'Fall 2027',
+      updatedAt: expect.any(String),
+    })
+    expect(renamed.body.createdAt).toBe(season.createdAt)
+    expect(renamed.body.updatedAt).not.toBe('2020-01-01T00:00:00.000Z')
+
+    const persisted = JSON.parse(await readFile(path.join(dataDir, 'seasons', `${season.id}.json`), 'utf8'))
+    expect(persisted).toEqual(renamed.body)
+    const detail = await request(app).get(`/api/seasons/${season.id}`).expect(200)
+    expect(detail.body.season).toEqual(renamed.body)
+    expect(detail.body.groups.map((assigned: Group) => assigned.id)).toEqual([group.id])
+  })
+
+  it('validates season renames and returns 404 for an unknown season', async () => {
+    const season = (await request(app).post('/api/seasons').send({ name: 'Keep Me' }).expect(201)).body
+    const invalidNames = [undefined, null, 42, ' \t ', 'x'.repeat(101)]
+    for (const name of invalidNames) {
+      const body = name === undefined ? {} : { name }
+      await request(app).patch(`/api/seasons/${season.id}`).send(body).expect(400)
+    }
+    await request(app).patch('/api/seasons/missing').send({ name: 'Valid Name' }).expect(404)
+    const persisted = (await request(app).get(`/api/seasons/${season.id}`).expect(200)).body.season
+    expect(persisted).toEqual(season)
+  })
+
+  it('reassigns and unassigns groups while preserving rename, archive and attendance', async () => {
+    const first = (await request(app).post('/api/seasons').send({ name: 'First' }).expect(201)).body
+    const second = (await request(app).post('/api/seasons').send({ name: 'Second' }).expect(201)).body
+    const group = (await request(app).post('/api/groups').send({ name: 'Group' }).expect(201)).body as Group
+    await request(app).put(`/api/groups/${group.id}/meetings`).send({ dates: ['2026-10-07'] }).expect(200)
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings/2026-10-07/attendance`)
+      .send({ presentMemberIds: [] })
+      .expect(200)
+
+    const assigned = await request(app)
+      .patch(`/api/groups/${group.id}`)
+      .send({ seasonId: first.id, name: 'Renamed', archived: true })
+      .expect(200)
+    expect(assigned.body).toMatchObject({ name: 'Renamed', seasonId: first.id, archivedAt: expect.any(String) })
+
+    const reassigned = await request(app)
+      .patch(`/api/groups/${group.id}`)
+      .send({ seasonId: second.id })
+      .expect(200)
+    expect(reassigned.body.seasonId).toBe(second.id)
+    expect((await request(app).get(`/api/seasons/${first.id}`).expect(200)).body.groups).toEqual([])
+    expect((await request(app).get(`/api/seasons/${second.id}`).expect(200)).body.groups[0].id).toBe(group.id)
+
+    const unassigned = await request(app).patch(`/api/groups/${group.id}`).send({ seasonId: null }).expect(200)
+    expect(unassigned.body).not.toHaveProperty('seasonId')
+    expect(unassigned.body.meetings[0].attendance).toEqual({
+      presentMemberIds: [],
+      recordedAt: expect.any(String),
+    })
+    const summary = (await request(app).get('/api/groups').expect(200)).body[0]
+    expect(summary).not.toHaveProperty('seasonId')
+    expect((await request(app).get(`/api/groups/${group.id}`).expect(200)).body).not.toHaveProperty('seasonId')
+    expect((await request(app).get(`/api/seasons/${second.id}`).expect(200)).body.groups).toEqual([])
+  })
+
+  it('rejects an unknown reassignment without changing the group', async () => {
+    const season = (await request(app).post('/api/seasons').send({ name: 'Known' }).expect(201)).body
+    const group = (await request(app)
+      .post('/api/groups')
+      .send({ name: 'Assigned', seasonId: season.id })
+      .expect(201)).body
+    await request(app).patch(`/api/groups/${group.id}`).send({ seasonId: 'missing' }).expect(400)
+    const saved = await request(app).get(`/api/groups/${group.id}`).expect(200)
+    expect(saved.body.seasonId).toBe(season.id)
+  })
+
+  it('keeps legacy groups unassigned and exposes their JSON unchanged', async () => {
+    await mkdir(path.join(dataDir, 'groups'), { recursive: true })
+    const legacy: Group = {
+      id: 'legacy-group',
+      name: 'Legacy',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      members: [],
+      meetings: [],
+    }
+    await writeFile(path.join(dataDir, 'groups', `${legacy.id}.json`), JSON.stringify(legacy))
+
+    const direct = await request(app).get(`/api/groups/${legacy.id}`).expect(200)
+    expect(direct.body).not.toHaveProperty('seasonId')
+    expect((await request(app).get('/api/groups').expect(200)).body[0]).not.toHaveProperty('seasonId')
+  })
+
+  it('serializes concurrent assignments so the saved reference is consistent', async () => {
+    const seasons = await Promise.all(
+      ['A', 'B', 'C'].map(async (name) =>
+        (await request(app).post('/api/seasons').send({ name }).expect(201)).body,
+      ),
+    )
+    const group = (await request(app).post('/api/groups').send({ name: 'Busy' }).expect(201)).body as Group
+    const responses = await Promise.all(
+      Array.from({ length: 18 }, (_, index) =>
+        request(app)
+          .patch(`/api/groups/${group.id}`)
+          .send(index % 4 === 0 ? { seasonId: null } : { seasonId: seasons[index % seasons.length].id }),
+      ),
+    )
+    expect(responses.every((response) => response.status === 200)).toBe(true)
+
+    const saved = (await request(app).get(`/api/groups/${group.id}`).expect(200)).body as Group
+    const knownIds = new Set(seasons.map((season) => season.id))
+    expect(saved.seasonId === undefined || knownIds.has(saved.seasonId)).toBe(true)
+    const detailMemberships = await Promise.all(
+      seasons.map(async (season) => {
+        const detail = await request(app).get(`/api/seasons/${season.id}`).expect(200)
+        return detail.body.groups.some((candidate: Group) => candidate.id === group.id)
+      }),
+    )
+    expect(detailMemberships.filter(Boolean)).toHaveLength(saved.seasonId === undefined ? 0 : 1)
+  })
+})
+
 describe('GET /api/stats', () => {
   it('returns totals, weekly and per-group stats, honouring filters', async () => {
     const group = await createGroupWithMembers(['Ann', 'Ben', 'Cal', 'Dee'])
@@ -287,5 +471,87 @@ describe('GET /api/stats', () => {
 
     await request(app).get('/api/stats?from=10/01/2026').expect(400)
     await request(app).get('/api/stats?from=2026-10-31&to=2026-10-01').expect(400)
+  })
+
+  it('uses current season assignments and intersects season, group and date filters', async () => {
+    const spring = (await request(app).post('/api/seasons').send({ name: 'Spring' }).expect(201)).body
+    const fall = (await request(app).post('/api/seasons').send({ name: 'Fall' }).expect(201)).body
+    const empty = (await request(app).post('/api/seasons').send({ name: 'Empty' }).expect(201)).body
+    const springGroup = (
+      await request(app).post('/api/groups').send({ name: 'Spring Group', seasonId: spring.id }).expect(201)
+    ).body as Group
+    const fallGroup = (
+      await request(app).post('/api/groups').send({ name: 'Fall Group', seasonId: fall.id }).expect(201)
+    ).body as Group
+    const unassigned = (await request(app).post('/api/groups').send({ name: 'Unassigned Group' }).expect(201))
+      .body as Group
+
+    for (const group of [springGroup, fallGroup, unassigned]) {
+      await request(app)
+        .put(`/api/groups/${group.id}/meetings`)
+        .send({ dates: ['2026-10-07', '2026-10-14'] })
+        .expect(200)
+      await request(app)
+        .put(`/api/groups/${group.id}/meetings/2026-10-07/attendance`)
+        .send({ presentMemberIds: [] })
+        .expect(200)
+    }
+
+    const seasonOnly = await request(app)
+      .get(`/api/stats?season=${spring.id}&today=2026-10-14`)
+      .expect(200)
+    expect(seasonOnly.body.filter.seasonId).toBe(spring.id)
+    expect(seasonOnly.body.groups.map((group: Group) => group.id)).toEqual([springGroup.id])
+    expect(seasonOnly.body.totals).toMatchObject({ meetingsWithAttendance: 1, meetingsWithoutAttendance: 1 })
+
+    const intersection = await request(app)
+      .get(
+        `/api/stats?season=${spring.id}&group=${springGroup.id}&from=2026-10-14&to=2026-10-14&today=2026-10-14`,
+      )
+      .expect(200)
+    expect(intersection.body.filter.groupIds).toEqual([springGroup.id])
+    expect(intersection.body.groups.map((group: Group) => group.id)).toEqual([springGroup.id])
+    expect(intersection.body.totals.meetingsWithAttendance).toBe(0)
+    expect(intersection.body.totals.meetingsWithoutAttendance).toBe(1)
+
+    const disjointGroups = await request(app)
+      .get(`/api/stats?season=${spring.id}&group=${fallGroup.id}&today=2026-10-14`)
+      .expect(200)
+    expect(disjointGroups.body.groups).toEqual([])
+    expect(disjointGroups.body.filter.groupIds).toEqual([fallGroup.id])
+
+    const unknownGroupsOnly = await request(app)
+      .get(`/api/stats?season=${spring.id}&group=missing&today=2026-10-14`)
+      .expect(200)
+    expect(unknownGroupsOnly.body.filter.groupIds).toEqual([])
+    expect(unknownGroupsOnly.body.groups).toEqual([])
+
+    const previouslySpring = await request(app)
+      .patch(`/api/groups/${springGroup.id}`)
+      .send({ seasonId: fall.id })
+      .expect(200)
+    expect(previouslySpring.body.seasonId).toBe(fall.id)
+    const oldSeason = await request(app)
+      .get(`/api/stats?season=${spring.id}&today=2026-10-14`)
+      .expect(200)
+    const newSeason = await request(app)
+      .get(`/api/stats?season=${fall.id}&today=2026-10-14`)
+      .expect(200)
+    expect(oldSeason.body.groups).toEqual([])
+    expect(newSeason.body.groups.map((group: Group) => group.id)).toEqual([fallGroup.id, springGroup.id])
+
+    for (const seasonId of ['missing', empty.id]) {
+      const noMatches = await request(app).get(`/api/stats?season=${seasonId}&today=2026-10-14`).expect(200)
+      expect(noMatches.body.filter.seasonId).toBe(seasonId)
+      expect(noMatches.body.groups).toEqual([])
+      expect(noMatches.body.weeks).toEqual([])
+      expect(noMatches.body.totals).toMatchObject({
+        present: 0,
+        expected: 0,
+        meetingsWithAttendance: 0,
+        meetingsWithoutAttendance: 0,
+        upcomingMeetings: 0,
+      })
+    }
   })
 })
