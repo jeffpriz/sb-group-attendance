@@ -6,11 +6,20 @@ export interface Member {
   name: string
   /** ISO timestamp of when the member was added. */
   addedAt: string
+  /** Durable membership periods. Newer/absent periods coexist with the legacy fields. */
+  membershipIntervals?: MembershipInterval[]
   /**
    * Set when the member is removed from the group. Removed members are kept
    * in the file so past attendance records still show their name.
    */
   removedAt?: string
+}
+
+export interface MembershipInterval {
+  /** First calendar date included in this membership period. */
+  startDate: string
+  /** Optional first calendar date excluded from this membership period. */
+  endDate?: string
 }
 
 /** Attendance recorded for a single meeting. */

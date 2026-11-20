@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import express, { type NextFunction, type Request, type Response } from 'express'
-import { isValidIsoDate, uniqueSortedDates } from '../shared/dates.ts'
+import { isValidIsoDate, todayIso, uniqueSortedDates } from '../shared/dates.ts'
 import { computeStats } from '../shared/stats.ts'
 import type { Group, GroupSummary, StatsResponse } from '../shared/types.ts'
 import { GroupStore, HttpError } from './storage.ts'
@@ -101,8 +101,16 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
 
   api.post('/groups/:groupId/members', async (req, res) => {
     const name = requireName(req.body?.name, 'Member name')
+    const startDate = req.body?.startDate === undefined ? todayIso() : requireDate(req.body.startDate)
     const group = await store.update(req.params.groupId, (g) => {
-      g.members.push({ id: randomUUID(), name, addedAt: new Date().toISOString() })
+      const now = new Date()
+      const isoForStart = `${startDate}T${now.toISOString().slice(11)}`
+      g.members.push({
+        id: randomUUID(),
+        name,
+        addedAt: isoForStart,
+        membershipIntervals: [{ startDate }],
+      })
     })
     res.status(201).json(group)
   })
@@ -114,7 +122,52 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
       const member = g.members.find((m) => m.id === req.params.memberId)
       if (!member) throw new HttpError(404, 'Member not found')
       if (name) member.name = name
-      if (restore) delete member.removedAt
+      if (req.body?.removalDate !== undefined) {
+        // Correct when an already-removed member actually left.
+        const newEnd = requireDate(req.body.removalDate)
+        if (!member.removedAt) throw new HttpError(400, 'Only removed members have a removal date to change')
+        if (newEnd > todayIso()) throw new HttpError(400, 'Removal date cannot be in the future')
+        const intervals = (member.membershipIntervals ??= [
+          { startDate: member.addedAt.slice(0, 10), endDate: member.removedAt.slice(0, 10) },
+        ])
+        const last = intervals[intervals.length - 1]
+        if (newEnd < last.startDate) {
+          throw new HttpError(400, 'Removal date cannot be before the member joined or was restored')
+        }
+        last.endDate = newEnd
+        member.removedAt = `${newEnd}T23:59:59.999Z`
+      }
+      if (restore) {
+        const restoreDate = req.body?.restoreDate === undefined ? todayIso() : requireDate(req.body.restoreDate)
+        if (!member.removedAt) {
+          // Restoring an active member is idempotent.
+        } else {
+          const previousEnd = member.removedAt.slice(0, 10)
+          if (restoreDate < previousEnd) {
+            throw new HttpError(400, 'Restore date cannot be before the member was removed')
+          }
+          member.membershipIntervals ??= [{ startDate: member.addedAt.slice(0, 10), endDate: previousEnd }]
+          member.membershipIntervals.push({ startDate: restoreDate })
+          delete member.removedAt
+        }
+
+        const retroactiveMeetingDate =
+          req.body?.retroactiveMeetingDate === undefined ? undefined : requireDate(req.body.retroactiveMeetingDate)
+        if (retroactiveMeetingDate) {
+          if (retroactiveMeetingDate > todayIso()) {
+            throw new HttpError(400, 'A retroactive meeting date cannot be in the future')
+          }
+          const meeting = findMeeting(g, retroactiveMeetingDate)
+          const present = req.body?.present !== false
+          const ids = new Set(meeting.attendance?.presentMemberIds ?? [])
+          if (present) ids.add(member.id)
+          else ids.delete(member.id)
+          meeting.attendance = {
+            presentMemberIds: [...ids],
+            recordedAt: new Date().toISOString(),
+          }
+        }
+      }
     })
     res.json(group)
   })
@@ -124,10 +177,28 @@ export function createApp({ dataDir, store: givenStore, staticDir }: AppOptions)
    * with `removedAt`) so attendance history keeps their name.
    */
   api.delete('/groups/:groupId/members/:memberId', async (req, res) => {
+    const removalDate =
+      req.body?.removalDate === undefined ? todayIso() : requireDate(req.body.removalDate)
+    if (removalDate > todayIso()) throw new HttpError(400, 'Removal date cannot be in the future')
     const group = await store.update(req.params.groupId, (g) => {
       const member = g.members.find((m) => m.id === req.params.memberId)
       if (!member) throw new HttpError(404, 'Member not found')
-      member.removedAt ??= new Date().toISOString()
+      if (member.removedAt) return
+      const intervals = member.membershipIntervals
+      if (intervals?.length) {
+        const open = intervals.find((interval) => !interval.endDate)
+        if (open) {
+          if (removalDate < open.startDate) {
+            throw new HttpError(400, 'Removal date cannot be before the member joined or was restored')
+          }
+          open.endDate = removalDate
+        }
+      } else {
+        const startDate = member.addedAt.slice(0, 10)
+        if (removalDate < startDate) throw new HttpError(400, 'Removal date cannot be before the member was added')
+        member.membershipIntervals = [{ startDate, endDate: removalDate }]
+      }
+      member.removedAt = `${removalDate}T23:59:59.999Z`
     })
     res.json(group)
   })

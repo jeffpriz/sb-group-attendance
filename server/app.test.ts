@@ -108,6 +108,91 @@ describe('API', () => {
 
     const restored = await request(app).patch(base).send({ restore: true }).expect(200)
     expect(restored.body.members[0].removedAt).toBeUndefined()
+    expect(restored.body.members[0].membershipIntervals).toHaveLength(2)
+  })
+
+  it('backdates a removal and lets the removal date be corrected', async () => {
+    const created = await request(app).post('/api/groups').send({ name: 'G' }).expect(201)
+    const added = await request(app)
+      .post(`/api/groups/${created.body.id}/members`)
+      .send({ name: 'Ann', startDate: '2026-09-01' })
+      .expect(201)
+    const id = added.body.id as string
+    const member = added.body.members[0]
+    const base = `/api/groups/${id}/members/${member.id}`
+
+    await request(app).patch(base).send({ removalDate: '2026-10-01' }).expect(400) // not removed yet
+    const removed = await request(app).delete(base).send({ removalDate: '2026-10-14' }).expect(200)
+    expect(removed.body.members[0].membershipIntervals).toEqual([{ startDate: '2026-09-01', endDate: '2026-10-14' }])
+
+    const fixed = await request(app).patch(base).send({ removalDate: '2026-10-07' }).expect(200)
+    expect(fixed.body.members[0].membershipIntervals).toEqual([{ startDate: '2026-09-01', endDate: '2026-10-07' }])
+    await request(app).patch(base).send({ removalDate: '2026-08-01' }).expect(400)
+    await request(app).patch(base).send({ removalDate: '2099-01-01' }).expect(400)
+  })
+
+  it('preserves removal intervals and supports retroactive restoration for a past meeting', async () => {
+    const created = await request(app).post('/api/groups').send({ name: 'Wednesday Group' }).expect(201)
+    let group: Group = created.body
+    group = (await request(app)
+      .post(`/api/groups/${group.id}/members`)
+      .send({ name: 'Ann', startDate: '2026-09-09' })
+      .expect(201)).body
+    const member = group.members[0]
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings`)
+      .send({ dates: ['2026-10-14', '2026-11-11', '2026-11-18'] })
+      .expect(200)
+
+    await request(app)
+      .delete(`/api/groups/${group.id}/members/${member.id}`)
+      .send({ removalDate: '2026-10-01' })
+      .expect(200)
+
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings/2026-10-14/attendance`)
+      .send({ presentMemberIds: [] })
+      .expect(200)
+    await request(app)
+      .put(`/api/groups/${group.id}/meetings/2026-11-11/attendance`)
+      .send({ presentMemberIds: [] })
+      .expect(200)
+
+    const restored = await request(app)
+      .patch(`/api/groups/${group.id}/members/${member.id}`)
+      .send({
+        restore: true,
+        restoreDate: '2026-11-13',
+        retroactiveMeetingDate: '2026-11-11',
+      })
+      .expect(200)
+    expect(restored.body.members[0].removedAt).toBeUndefined()
+    expect(restored.body.members[0].membershipIntervals).toEqual([
+      { startDate: '2026-09-09', endDate: '2026-10-01' },
+      { startDate: '2026-11-13' },
+    ])
+    expect(restored.body.meetings.find((m: { date: string }) => m.date === '2026-11-11').attendance.presentMemberIds)
+      .toEqual([member.id])
+
+    const activeAgain = await request(app)
+      .patch(`/api/groups/${group.id}/members/${member.id}`)
+      .send({ restore: true, restoreDate: '2026-12-01' })
+      .expect(200)
+    expect(activeAgain.body.members[0].membershipIntervals).toHaveLength(2)
+
+    await request(app)
+      .patch(`/api/groups/${group.id}/members/${member.id}`)
+      .send({ restore: true, restoreDate: '2026-11-13', retroactiveMeetingDate: '2026-11-10' })
+      .expect(404)
+
+    await request(app)
+      .delete(`/api/groups/${group.id}/members/${member.id}`)
+      .send({ removalDate: '2099-01-01' })
+      .expect(400)
+    await request(app)
+      .patch(`/api/groups/${group.id}/members/${member.id}`)
+      .send({ restore: true, retroactiveMeetingDate: '2099-01-01' })
+      .expect(400)
   })
 
   it('reports health, including whether the data folder is writable', async () => {

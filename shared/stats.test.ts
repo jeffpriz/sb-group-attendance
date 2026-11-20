@@ -98,6 +98,41 @@ describe('computeStats', () => {
 })
 
 describe('expectedMembers', () => {
+  it('stops counting a member for meetings after a backdated removal, even if attendance was saved earlier', () => {
+    const dropped: Member = {
+      id: 'drop',
+      name: 'Drop',
+      addedAt: '2026-09-01T12:00:00.000Z',
+      membershipIntervals: [{ startDate: '2026-09-01', endDate: '2026-10-14' }],
+      removedAt: '2026-10-14T23:59:59.999Z',
+    }
+    const before = recorded('2026-10-07', [], '2026-10-07T23:00:00.000Z')
+    const after = recorded('2026-10-14', [], '2026-10-14T23:00:00.000Z')
+    const later = recorded('2026-10-21', ['drop'], '2026-10-21T23:00:00.000Z')
+    const g = group('g', 'G', [dropped], [before, after, later])
+    expect(expectedMembers(g, before).map((m) => m.id)).toEqual(['drop'])
+    expect(expectedMembers(g, after).map((m) => m.id)).toEqual([])
+    expect(expectedMembers(g, later).map((m) => m.id)).toEqual(['drop']) // marked present stays
+  })
+
+  it('uses membership intervals without reopening October periods', () => {
+    const intervalMember: Member = {
+      id: 'ann',
+      name: 'Ann',
+      addedAt: '2026-09-01T12:00:00.000Z',
+      membershipIntervals: [
+        { startDate: '2026-09-09', endDate: '2026-10-01' },
+        { startDate: '2026-11-13' },
+      ],
+    }
+    const october = recorded('2026-10-14', [])
+    const november = recorded('2026-11-11', ['ann'])
+    const g = group('g', 'G', [intervalMember], [october, november])
+
+    expect(expectedMembers(g, october).map((m) => m.id)).toEqual([])
+    expect(expectedMembers(g, november).map((m) => m.id)).toEqual(['ann'])
+  })
+
   const meeting = recorded('2026-10-07', ['gone'], '2026-10-07T23:00:00.000Z')
 
   it('counts members removed later, and anyone marked present', () => {

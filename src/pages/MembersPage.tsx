@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router'
+import { todayIso } from '../../shared/dates.ts'
 import type { Member } from '../../shared/types.ts'
 import { api } from '../api.ts'
 import Notice from '../components/Notice.tsx'
@@ -21,6 +22,12 @@ export default function MembersPage() {
   const [editName, setEditName] = useState('')
   const [groupName, setGroupName] = useState(group.name)
   const [showRemoved, setShowRemoved] = useState(false)
+  const [removingId, setRemovingId] = useState<string>()
+  const [removalDate, setRemovalDate] = useState(todayIso())
+  const [restoringId, setRestoringId] = useState<string>()
+  const [changingRemovalId, setChangingRemovalId] = useState<string>()
+  const [restoreDate, setRestoreDate] = useState(todayIso())
+  const [retroMeetingDate, setRetroMeetingDate] = useState('')
   const nameInput = useRef<HTMLInputElement>(null)
 
   const members = activeMembers(group)
@@ -81,17 +88,36 @@ export default function MembersPage() {
   }
 
   function removeMember(member: Member) {
-    if (!confirm(`Remove ${member.name} from ${group.name}? Their past attendance is kept.`)) return
     void run(async () => {
-      setGroup(await api.removeMember(group.id, member.id))
+      setGroup(await api.removeMember(group.id, member.id, removalDate))
       setMessage(`Removed ${member.name}.`)
+      setRemovingId(undefined)
+    })
+  }
+
+  function changeRemovalDate(member: Member) {
+    void run(async () => {
+      setGroup(await api.setRemovalDate(group.id, member.id, removalDate))
+      setMessage(`${member.name} is now counted as removed from ${removalDate}.`)
+      setChangingRemovalId(undefined)
     })
   }
 
   function restoreMember(member: Member) {
     void run(async () => {
-      setGroup(await api.restoreMember(group.id, member.id))
-      setMessage(`${member.name} is back in the group.`)
+      setGroup(await api.restoreMember(
+        group.id,
+        member.id,
+        restoreDate,
+        retroMeetingDate || undefined,
+      ))
+      setMessage(
+        retroMeetingDate
+          ? `${member.name} restored and marked present for ${retroMeetingDate}.`
+          : `${member.name} is back in the group from ${restoreDate}.`,
+      )
+      setRestoringId(undefined)
+      setRetroMeetingDate('')
     })
   }
 
@@ -205,14 +231,45 @@ export default function MembersPage() {
                 ) : (
                   <>
                     <span className="member-name">{member.name}</span>
-                    <span className="row-actions">
-                      <button type="button" onClick={() => startEdit(member)} disabled={busy}>
-                        Rename
-                      </button>
-                      <button type="button" className="danger" onClick={() => removeMember(member)} disabled={busy}>
-                        Remove
-                      </button>
-                    </span>
+                    {removingId === member.id ? (
+                      <form className="input-row" onSubmit={(e) => { e.preventDefault(); removeMember(member) }}>
+                        <label className="field">
+                          <span>Removal date</span>
+                          <input
+                            type="date"
+                            value={removalDate}
+                            onChange={(e) => setRemovalDate(e.target.value)}
+                            max={todayIso()}
+                            required
+                          />
+                        </label>
+                        <button type="submit" className="danger" disabled={busy}>
+                          Confirm remove
+                        </button>
+                        <button type="button" onClick={() => setRemovingId(undefined)}>Cancel</button>
+                        <p className="muted small">
+                          Meetings on or after this date no longer count this member, even if attendance was already
+                          taken. Anyone marked present stays marked present.
+                        </p>
+                      </form>
+                    ) : (
+                      <span className="row-actions">
+                        <button type="button" onClick={() => startEdit(member)} disabled={busy}>
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => {
+                            setRemovingId(member.id)
+                            setRemovalDate(todayIso())
+                          }}
+                          disabled={busy}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    )}
                   </>
                 )}
               </li>
@@ -235,12 +292,88 @@ export default function MembersPage() {
             <ul className="member-list">
               {removed.map((member) => (
                 <li key={member.id}>
-                  <span className="member-name muted">{member.name}</span>
-                  <span className="row-actions">
-                    <button type="button" onClick={() => restoreMember(member)} disabled={busy}>
-                      Restore
-                    </button>
-                  </span>
+                  {restoringId === member.id ? (
+                    <form
+                      className="input-row"
+                      onSubmit={(e) => { e.preventDefault(); restoreMember(member) }}
+                    >
+                      <label className="field">
+                        <span>Restore date</span>
+                        <input
+                          type="date"
+                          value={restoreDate}
+                          onChange={(e) => setRestoreDate(e.target.value)}
+                          required
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Retroactive meeting (optional)</span>
+                        <select
+                          value={retroMeetingDate}
+                          onChange={(e) => setRetroMeetingDate(e.target.value)}
+                        >
+                          <option value="">None</option>
+                          {group.meetings
+                            .filter((meeting) => meeting.date <= todayIso())
+                            .map((meeting) => (
+                              <option key={meeting.date} value={meeting.date}>
+                                {meeting.date}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <button type="submit" className="primary" disabled={busy}>Confirm restore</button>
+                      <button type="button" onClick={() => setRestoringId(undefined)}>Cancel</button>
+                    </form>
+                  ) : changingRemovalId === member.id ? (
+                    <form
+                      className="input-row"
+                      onSubmit={(e) => { e.preventDefault(); changeRemovalDate(member) }}
+                    >
+                      <label className="field">
+                        <span>Removed on</span>
+                        <input
+                          type="date"
+                          value={removalDate}
+                          onChange={(e) => setRemovalDate(e.target.value)}
+                          max={todayIso()}
+                          required
+                        />
+                      </label>
+                      <button type="submit" className="primary" disabled={busy}>Save date</button>
+                      <button type="button" onClick={() => setChangingRemovalId(undefined)}>Cancel</button>
+                    </form>
+                  ) : (
+                    <>
+                      <span className="member-name muted">
+                        {member.name}
+                        {member.removedAt && ` (removed ${member.removedAt.slice(0, 10)})`}
+                      </span>
+                      <span className="row-actions">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChangingRemovalId(member.id)
+                            setRemovalDate(member.removedAt?.slice(0, 10) ?? todayIso())
+                          }}
+                          disabled={busy}
+                        >
+                          Change removal date
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRestoringId(member.id)
+                            setRestoreDate(todayIso())
+                            setRetroMeetingDate('')
+                          }}
+                          disabled={busy}
+                        >
+                          Restore
+                        </button>
+                      </span>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
