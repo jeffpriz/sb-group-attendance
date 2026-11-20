@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router'
 import type { TrackDetail } from '../../shared/types.ts'
 import { api, ApiRequestError } from '../api.ts'
+import Dialog from '../components/Dialog.tsx'
 import Notice from '../components/Notice.tsx'
+import PageHeader from '../components/PageHeader.tsx'
 import { errorMessage, plural } from '../util.ts'
 
 export default function TrackDetailPage() {
@@ -124,23 +126,63 @@ export default function TrackDetailPage() {
   return (
     <>
       <Link to="/tracks" className="back-link">← All tracks</Link>
-      <div className="section-head">
-        <h1>{detail.track.name}</h1>
-        <span className="badge">
-          {plural(detail.track.sessions.length, 'session')} · {plural(detail.groups.length, 'group')}
-        </span>
-      </div>
-      {error && <Notice kind="error" onDismiss={() => setError(undefined)}>{error}</Notice>}
-      {renaming ? (
-        <form className="card" onSubmit={saveName}>
+      <PageHeader
+        title={detail.track.name}
+        actions={
+          <span className="badge">
+            {plural(detail.track.sessions.length, 'session')} · {plural(detail.groups.length, 'group')}
+          </span>
+        }
+      />
+      {error && !renaming && (
+        <Notice kind="error" onDismiss={() => setError(undefined)}>
+          {error}
+        </Notice>
+      )}
+      <button
+        type="button"
+        aria-haspopup="dialog"
+        onClick={() => {
+          setError(undefined)
+          setRenaming(true)
+        }}
+      >
+        Rename track
+      </button>
+      <Dialog
+        open={renaming}
+        title="Rename track"
+        onClose={() => {
+          setName(detail.track.name)
+          setError(undefined)
+          setRenaming(false)
+        }}
+        closeDisabled={busy}
+      >
+        <form className="dialog-form" onSubmit={saveName}>
+          {error && (
+            <Notice kind="error" onDismiss={() => setError(undefined)}>
+              {error}
+            </Notice>
+          )}
           <label className="field">
             <span>Track name</span>
             <div className="input-row">
-              <input value={name} onChange={(event) => setName(event.target.value)} maxLength={100} required />
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={100}
+                required
+                data-dialog-autofocus
+              />
               <button type="submit" className="primary" disabled={busy || !name.trim()}>Save name</button>
               <button
                 type="button"
-                onClick={() => { setName(detail.track.name); setRenaming(false) }}
+                onClick={() => {
+                  setName(detail.track.name)
+                  setError(undefined)
+                  setRenaming(false)
+                }}
                 disabled={busy}
               >
                 Cancel
@@ -148,9 +190,7 @@ export default function TrackDetailPage() {
             </div>
           </label>
         </form>
-      ) : (
-        <button type="button" onClick={() => setRenaming(true)}>Rename track</button>
-      )}
+      </Dialog>
       <section className="card">
         <h2>Sessions</h2>
         {detail.track.sessions.length === 0 ? (
@@ -160,7 +200,10 @@ export default function TrackDetailPage() {
             {detail.track.sessions.map((session) => (
               <li key={session.id}>
                 {editingSessionId === session.id ? (
-                  <form className="input-row" onSubmit={(event) => renameSession(event, session.id)}>
+                  <form
+                    className="input-row inline-edit-form"
+                    onSubmit={(event) => renameSession(event, session.id)}
+                  >
                     <input
                       value={editingName}
                       onChange={(event) => setEditingName(event.target.value)}

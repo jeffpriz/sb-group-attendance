@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import type { TrackSummary } from '../../shared/types.ts'
 import { api } from '../api.ts'
+import Dialog from '../components/Dialog.tsx'
 import Notice from '../components/Notice.tsx'
+import PageHeader from '../components/PageHeader.tsx'
 import { errorMessage, plural } from '../util.ts'
 
 export default function TracksPage() {
@@ -12,6 +14,8 @@ export default function TracksPage() {
   const [name, setName] = useState('')
   const [sessions, setSessions] = useState('')
   const [creating, setCreating] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createError, setCreateError] = useState<string>()
 
   async function load() {
     setLoading(true)
@@ -47,9 +51,9 @@ export default function TracksPage() {
 
   async function create(event: FormEvent) {
     event.preventDefault()
-    if (!name.trim()) return
+    if (creating || !name.trim()) return
     setCreating(true)
-    setError(undefined)
+    setCreateError(undefined)
     const sessionNames = sessions
       .split(/\r?\n/)
       .map((session) => session.trim())
@@ -63,20 +67,35 @@ export default function TracksPage() {
       )
       setName('')
       setSessions('')
+      setCreateOpen(false)
     } catch (err) {
-      setError(errorMessage(err))
+      setCreateError(errorMessage(err))
     } finally {
       setCreating(false)
     }
   }
 
+  function openCreate() {
+    setCreateError(undefined)
+    setCreateOpen(true)
+  }
+
+  function closeCreate() {
+    setCreateError(undefined)
+    setCreateOpen(false)
+  }
+
   return (
     <>
-      <div className="section-head">
-        <h1>Tracks</h1>
-        <Link to="/" className="button">All groups</Link>
-      </div>
-      <p className="muted">Define the course material and sessions groups will work through.</p>
+      <PageHeader
+        title="Tracks"
+        description="Define the course material and sessions groups will work through."
+        actions={
+          <button type="button" className="primary" onClick={openCreate} aria-haspopup="dialog">
+            New track
+          </button>
+        }
+      />
       {error && (
         <Notice kind="error">
           <span>{error}</span>{' '}
@@ -87,7 +106,12 @@ export default function TracksPage() {
       )}
       {tracks === undefined && loading && <p className="muted">Loading tracks…</p>}
       {tracks?.length === 0 && (
-        <div className="card empty"><p>No tracks yet. Create one below.</p></div>
+        <div className="card empty">
+          <p>No tracks yet.</p>
+          <button type="button" className="primary" onClick={openCreate}>
+            Create the first track
+          </button>
+        </div>
       )}
       {tracks && tracks.length > 0 && (
         <ul className="season-list">
@@ -104,31 +128,50 @@ export default function TracksPage() {
           ))}
         </ul>
       )}
-      <form className="card" onSubmit={create}>
-        <h2>Create a track</h2>
-        <label className="field">
-          <span>Track name</span>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="e.g. Thinking"
-            maxLength={100}
-            required
-          />
-        </label>
-        <label className="field">
-          <span>Sessions (one per line, optional)</span>
-          <textarea
-            rows={5}
-            value={sessions}
-            onChange={(event) => setSessions(event.target.value)}
-            placeholder={'Session 1\nSession 2\nSession 3'}
-          />
-        </label>
-        <button type="submit" className="primary" disabled={creating || !name.trim()}>
-          {creating ? 'Creating…' : 'Create track'}
-        </button>
-      </form>
+      <Dialog
+        open={createOpen}
+        title="New track"
+        onClose={closeCreate}
+        closeDisabled={creating}
+      >
+        <form className="dialog-form" onSubmit={create}>
+          {createError && (
+            <Notice kind="error" onDismiss={() => setCreateError(undefined)}>
+              {createError}
+            </Notice>
+          )}
+          <label className="field">
+            <span>Track name</span>
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Thinking"
+              maxLength={100}
+              required
+              disabled={creating}
+              data-dialog-autofocus
+            />
+          </label>
+          <label className="field">
+            <span>Sessions (one per line, optional)</span>
+            <textarea
+              rows={5}
+              value={sessions}
+              onChange={(event) => setSessions(event.target.value)}
+              placeholder={'Session 1\nSession 2\nSession 3'}
+              disabled={creating}
+            />
+          </label>
+          <div className="dialog-actions">
+            <button type="button" onClick={closeCreate} disabled={creating}>
+              Cancel
+            </button>
+            <button type="submit" className="primary" disabled={creating || !name.trim()}>
+              {creating ? 'Creating…' : 'Create track'}
+            </button>
+          </div>
+        </form>
+      </Dialog>
     </>
   )
 }

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import type { SeasonSummary } from '../../shared/types.ts'
 import { api } from '../api.ts'
+import Dialog from '../components/Dialog.tsx'
 import Notice from '../components/Notice.tsx'
+import PageHeader from '../components/PageHeader.tsx'
 import { errorMessage, plural } from '../util.ts'
 
 export default function SeasonsPage() {
@@ -11,6 +13,8 @@ export default function SeasonsPage() {
   const [error, setError] = useState<string>()
   const [name, setName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createError, setCreateError] = useState<string>()
 
   const load = useCallback(async () => {
     try {
@@ -51,9 +55,9 @@ export default function SeasonsPage() {
 
   async function createSeason(event: FormEvent) {
     event.preventDefault()
-    if (!name.trim()) return
+    if (creating || !name.trim()) return
     setCreating(true)
-    setError(undefined)
+    setCreateError(undefined)
     try {
       const created = await api.createSeason(name)
       setSeasons((current) =>
@@ -62,22 +66,35 @@ export default function SeasonsPage() {
         ),
       )
       setName('')
+      setCreateOpen(false)
     } catch (err) {
-      setError(errorMessage(err))
+      setCreateError(errorMessage(err))
     } finally {
       setCreating(false)
     }
   }
 
+  function openCreate() {
+    setCreateError(undefined)
+    setCreateOpen(true)
+  }
+
+  function closeCreate() {
+    setCreateError(undefined)
+    setCreateOpen(false)
+  }
+
   return (
     <>
-      <div className="section-head">
-        <h1>Seasons</h1>
-        <Link to="/" className="button">
-          All groups
-        </Link>
-      </div>
-      <p className="muted">Organize groups by their current attendance season.</p>
+      <PageHeader
+        title="Seasons"
+        description="Organize groups by their current attendance season."
+        actions={
+          <button type="button" className="primary" onClick={openCreate} aria-haspopup="dialog">
+            New season
+          </button>
+        }
+      />
       {error && (
         <Notice kind="error">
           <span>{error}</span>{' '}
@@ -89,7 +106,10 @@ export default function SeasonsPage() {
       {seasons === undefined && loading && <p className="muted">Loading seasons…</p>}
       {seasons?.length === 0 && (
         <div className="card empty">
-          <p>No seasons yet. Create one below.</p>
+          <p>No seasons yet.</p>
+          <button type="button" className="primary" onClick={openCreate}>
+            Create the first season
+          </button>
         </div>
       )}
       {seasons && seasons.length > 0 && (
@@ -111,24 +131,40 @@ export default function SeasonsPage() {
           })}
         </ul>
       )}
-      <form className="card" onSubmit={createSeason}>
-        <h2>Create a season</h2>
-        <label className="field">
-          <span>Season name</span>
-          <div className="input-row">
+      <Dialog
+        open={createOpen}
+        title="New season"
+        onClose={closeCreate}
+        closeDisabled={creating}
+      >
+        <form className="dialog-form" onSubmit={createSeason}>
+          {createError && (
+            <Notice kind="error" onDismiss={() => setCreateError(undefined)}>
+              {createError}
+            </Notice>
+          )}
+          <label className="field">
+            <span>Season name</span>
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="e.g. Spring 2027"
               maxLength={100}
               required
+              disabled={creating}
+              data-dialog-autofocus
             />
+          </label>
+          <div className="dialog-actions">
+            <button type="button" onClick={closeCreate} disabled={creating}>
+              Cancel
+            </button>
             <button type="submit" className="primary" disabled={creating || !name.trim()}>
               {creating ? 'Creating…' : 'Create season'}
             </button>
           </div>
-        </label>
-      </form>
+        </form>
+      </Dialog>
     </>
   )
 }

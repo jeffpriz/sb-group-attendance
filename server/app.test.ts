@@ -28,6 +28,44 @@ async function createGroupWithMembers(names: string[]): Promise<Group> {
 }
 
 describe('API', () => {
+  it('lists missing attendance for active groups in date and name order', async () => {
+    const zeta = (await request(app).post('/api/groups').send({ name: 'Zeta Group' }).expect(201)).body as Group
+    const alpha = (await request(app).post('/api/groups').send({ name: 'Alpha Group' }).expect(201)).body as Group
+    const archived = (await request(app).post('/api/groups').send({ name: 'Old Group' }).expect(201)).body as Group
+
+    await request(app)
+      .put(`/api/groups/${zeta.id}/meetings`)
+      .send({ dates: ['2026-11-10', '2026-11-12'] })
+      .expect(200)
+    await request(app)
+      .put(`/api/groups/${alpha.id}/meetings`)
+      .send({ dates: ['2026-11-10', '2026-11-09'] })
+      .expect(200)
+    await request(app)
+      .put(`/api/groups/${alpha.id}/meetings/2026-11-09/attendance`)
+      .send({ presentMemberIds: [] })
+      .expect(200)
+    await request(app)
+      .put(`/api/groups/${archived.id}/meetings`)
+      .send({ dates: ['2026-11-10'] })
+      .expect(200)
+    await request(app).patch(`/api/groups/${archived.id}`).send({ archived: true }).expect(200)
+
+    const response = await request(app)
+      .get('/api/attendance/missing')
+      .query({ today: '2026-11-11' })
+      .expect(200)
+
+    expect(response.body).toEqual({
+      asOf: '2026-11-11',
+      meetings: [
+        { date: '2026-11-10', groupId: alpha.id, groupName: 'Alpha Group' },
+        { date: '2026-11-10', groupId: zeta.id, groupName: 'Zeta Group' },
+      ],
+    })
+    await request(app).get('/api/attendance/missing').query({ today: '11/11/2026' }).expect(400)
+  })
+
   it('creates a group, members, schedule and attendance, and saves it to JSON', async () => {
     const group = await createGroupWithMembers(['Ann', 'Ben', 'Cal'])
     expect(group.members.map((m) => m.name)).toEqual(['Ann', 'Ben', 'Cal'])

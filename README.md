@@ -25,7 +25,7 @@ On the **Members** tab:
 - **One at a time:** type a **Member name** and click **Add** (or press Enter). The box stays ready for the next name.
 - **Several at once:** click **Add several at once**, paste names into **Names (one per line)**, and click **Add members**.
 - **Rename** or **Remove** a member from the list. A removed member is hidden from new meetings, but their past attendance is kept. **Show removed members** lets you **Restore** them.
-- **Change settings** at the top of the group opens **Group settings** above the member controls, where you can rename the group, change its season, or **Delete group…** (you must type `DELETE` to confirm; this permanently deletes the group, its members, schedule and attendance).
+- **Group settings** at the top of the group opens the settings above the member controls, where you can rename the group, change its season, or **Delete group…** (you must type `DELETE` to confirm; this permanently deletes the group, its members, schedule and attendance).
 
 ### 3. Build the meeting schedule
 

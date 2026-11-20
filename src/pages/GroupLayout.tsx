@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useParams } from 'react-router'
+import { groupSectionFromPath } from '../../shared/groupNavigation.ts'
 import type { Group, SeasonSummary, TrackSummary } from '../../shared/types.ts'
 import { api, ApiRequestError } from '../api.ts'
 import Notice from '../components/Notice.tsx'
+import PageHeader from '../components/PageHeader.tsx'
 import type { GroupContext } from '../groupContext.ts'
 import { errorMessage } from '../util.ts'
 
@@ -23,7 +25,7 @@ function GroupLoader({ groupId }: { groupId: string }) {
   const [seasonsError, setSeasonsError] = useState<string>()
   const [tracksError, setTracksError] = useState<string>()
   const { pathname } = useLocation()
-  const onMeetingPage = /\/meetings\//.test(pathname)
+  const activeSection = groupSectionFromPath(pathname, groupId)
   const updateGroup = useCallback((updated: Group) => {
     setGroup(updated)
     setSeasons((current) =>
@@ -190,30 +192,36 @@ function GroupLoader({ groupId }: { groupId: string }) {
       <Link to="/" className="back-link">
         ← All groups
       </Link>
-      <div className="group-heading">
-        <h1 className="group-title">{group.name}</h1>
-        <Link to="members#group-settings" className="button">
-          Change settings
-        </Link>
+      <div className="group-workspace-header">
+        <PageHeader
+          title={group.name}
+          actions={
+            <Link to="members#group-settings" className="button group-settings-link">
+              Group settings
+            </Link>
+          }
+        />
+        <div className="group-metadata">
+          <span>
+            {group.seasonId ? (
+              <Link to={`/seasons/${group.seasonId}`}>
+                Season: {season?.name ?? 'View season'}
+              </Link>
+            ) : (
+              <span className="muted">No season assigned</span>
+            )}
+          </span>
+          <span>
+            {group.trackId ? (
+              <Link to={`/tracks/${group.trackId}`}>
+                Track: {track?.name ?? 'View track'}
+              </Link>
+            ) : (
+              <span className="muted">No track assigned</span>
+            )}
+          </span>
+        </div>
       </div>
-      <p className="group-season-summary">
-        {group.seasonId ? (
-          <Link to={`/seasons/${group.seasonId}`}>
-            Season: {season?.name ?? 'View season'}
-          </Link>
-        ) : (
-          <span className="muted">No season assigned</span>
-        )}
-      </p>
-      <p className="group-season-summary">
-        {group.trackId ? (
-          <Link to={`/tracks/${group.trackId}`}>
-            Track: {track?.name ?? 'View track'}
-          </Link>
-        ) : (
-          <span className="muted">No track assigned</span>
-        )}
-      </p>
       {seasonsError && (
         <Notice kind="error">
           <span>{seasonsError} Season details may be unavailable.</span>{' '}
@@ -241,10 +249,14 @@ function GroupLoader({ groupId }: { groupId: string }) {
         </Notice>
       )}
       <nav className="tabs" aria-label="Group sections">
-        <NavLink to="" end className={({ isActive }) => (isActive || onMeetingPage ? 'active' : '')}>
+        <Link
+          to=""
+          className={activeSection === 'attendance' ? 'active' : undefined}
+          aria-current={activeSection === 'attendance' ? 'page' : undefined}
+        >
           Attendance
-        </NavLink>
-        <NavLink to="members">Members & settings</NavLink>
+        </Link>
+        <NavLink to="members">Members</NavLink>
         <NavLink to="schedule">Schedule</NavLink>
         <NavLink to="history">History</NavLink>
       </nav>

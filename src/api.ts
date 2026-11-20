@@ -1,6 +1,7 @@
 import type {
   Group,
   GroupSummary,
+  MissingAttendanceResponse,
   Season,
   SeasonDetail,
   SeasonSummary,
@@ -61,6 +62,8 @@ function statsQuery(q: StatsQuery): string {
 export const api = {
   getStats: (q: StatsQuery) => request<StatsResponse>('GET', `/stats?${statsQuery(q)}`),
   listGroups: () => request<GroupSummary[]>('GET', '/groups'),
+  getMissingAttendance: (today: string) =>
+    request<MissingAttendanceResponse>('GET', `/attendance/missing?today=${enc(today)}`),
   getGroup: (id: string) => request<Group>('GET', `/groups/${enc(id)}`),
   createGroup: (name: string, seasonId?: string) =>
     request<Group>('POST', '/groups', { name, seasonId }),

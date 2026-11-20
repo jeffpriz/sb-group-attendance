@@ -12,6 +12,7 @@ import {
 } from '../../shared/dates.ts'
 import type { Group } from '../../shared/types.ts'
 import { api } from '../api.ts'
+import FormPanel from '../components/FormPanel.tsx'
 import Notice from '../components/Notice.tsx'
 import { useGroup } from '../groupContext.ts'
 import { useMediaQuery } from '../hooks.ts'
@@ -218,9 +219,11 @@ function RecurringForm({
   }
 
   return (
-    <form className="card" onSubmit={submit}>
-      <h2>Add a repeating meeting</h2>
-      <p className="muted">Quickly fill the calendar with a regular meeting day.</p>
+    <FormPanel
+      title="Add a repeating meeting"
+      description="Quickly fill the calendar with a regular meeting day."
+      onSubmit={submit}
+    >
       <div className="form-grid">
         <label className="field">
           <span>Meets every</span>
@@ -256,6 +259,6 @@ function RecurringForm({
             ? 'Already on the calendar'
             : 'No matching dates'}
       </button>
-    </form>
+    </FormPanel>
   )
 }
